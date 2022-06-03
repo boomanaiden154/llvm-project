@@ -16,7 +16,9 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/MLModelRunner.h"
 #include "llvm/Analysis/TensorSpec.h"
-#if defined(LLVM_HAVE_TF_AOT_REGALLOCEVICTMODEL) || defined(LLVM_HAVE_TF_API) 
+#include "llvm/MC/MCInstrInfo.h"
+#include "llvm/Target/TargetMachine.h"
+#if defined(LLVM_HAVE_TF_AOT_REGALLOCEVICTMODEL) || defined(LLVM_HAVE_TF_API)
 #include "llvm/Analysis/ModelUnderTrainingRunner.h"
 #include "llvm/Analysis/NoInferenceModelRunner.h"
 #endif
@@ -126,6 +128,22 @@ static const int64_t MaxInterferences = 32;
 static const int64_t CandidateVirtRegPos = MaxInterferences;
 static const int64_t NumberOfInterferences = CandidateVirtRegPos + 1;
 
+// When the model gets trained, it won't understand new instructions unless
+// trained explicitly on them. This is the current cutoff for x86 (current
+// architecture focus for ML reg alloc work). Any instructions over this will be
+// replaced with 0s so that the model will still function even with new opcodes.
+// Comes from MCInstrInfo::getNumOpcodes()
+static const int OpcodeCountCutoff = 17716;
+
+// The number of use/def instructions that a specific candidate virtual register
+// might have is variable, but libtensorflow only supports models with a fixed
+// number of inputs. Currently encoding the first ten encountered use/def
+// instructions and just ignoring the rest. Padding with zeroes if less than
+// ten.
+static const int ModelMaxSupportedInstructionCount = 33;
+static const std::vector<int64_t> InstructionShape{
+    1, ModelMaxSupportedInstructionCount};
+
 // Most features are as described above, so we'll reuse this vector in defining
 // them.
 static const std::vector<int64_t> PerLiveRangeShape{1, NumberOfInterferences};
@@ -192,6 +210,8 @@ static const std::vector<int64_t> PerLiveRangeShape{1, NumberOfInterferences};
     "largest stage of an interval in this LR")                                 \
   M(int64_t, min_stage, PerLiveRangeShape,                                     \
     "lowest stage of an interval in this LR")                                  \
+  M(int64_t, lr_use_def_instructions, InstructionShape,                        \
+    "use/def instructions for the candidate virtual register")                 \
   M(float, progress, {1}, "ratio of current queue size to initial size")
 
 // The model learns to pick one of the mask == 1 interferences. This is the name
@@ -291,6 +311,8 @@ private:
                        std::array<float, FeatureIDs::FeatureCount> &Largest,
                        size_t Pos, int64_t IsHint, int64_t LocalIntfsCount,
                        float NrUrgent) const;
+
+  void extractInstructionFeatures(const LiveInterval &VirtReg) const;
 
   // Point-in-time: we didn't learn this, so we always delegate to the default.
   bool canEvictHintInterference(
@@ -629,12 +651,11 @@ MCRegister MLEvictAdvisor::tryFindEvictionCandidate(
   FeaturesListNormalizer Largest;
   Largest.fill(0.0);
 
-  // Same overal idea as in the default eviction policy - we visit the values of
-  // AllocationOrder one at a time. If it's not legally available, we mask off
-  // the corresponding feature column (==do nothing because we already reset all
-  // the features to 0)
-  // Use Pos to capture the column we load features at - in AllocationOrder
-  // order.
+  // Same overall idea as in the default eviction policy - we visit the values
+  // of AllocationOrder one at a time. If it's not legally available, we mask
+  // off the corresponding feature column (==do nothing because we already reset
+  // all the features to 0) Use Pos to capture the column we load features at -
+  // in AllocationOrder order.
   size_t Pos = 0;
   for (auto I = Order.begin(), E = Order.getOrderLimitEnd(OrderLimit); I != E;
        ++I, ++Pos) {
@@ -665,6 +686,7 @@ MCRegister MLEvictAdvisor::tryFindEvictionCandidate(
                     /*NrUrgent*/ 0.0);
   assert(InitialQSize > 0.0 && "We couldn't have gotten here if we had "
                                "nothing to allocate initially.");
+  extractInstructionFeatures(VirtReg);
   // Normalize the features.
   for (auto &V : Largest)
     V = V ? V : 1.0;
@@ -836,6 +858,19 @@ void MLEvictAdvisor::extractFeatures(
   SET(max_stage, int64_t, MaxStage);
   SET(min_stage, int64_t, MinStage);
 #undef SET
+}
+
+void MLEvictAdvisor::extractInstructionFeatures(
+    const LiveInterval &VirtReg) const {
+  size_t InstructionCount = 0;
+  for (auto MII = MF.getRegInfo().reg_instr_begin(VirtReg.reg());
+       MII != MF.getRegInfo().reg_instr_end() &&
+       InstructionCount < ModelMaxSupportedInstructionCount;
+       ++MII, ++InstructionCount) {
+    Runner->getTensor<int64_t>(
+        FeatureIDs::lr_use_def_instructions)[InstructionCount] =
+        MII->getOpcode();
+  }
 }
 
 // Development mode-specific implementations
