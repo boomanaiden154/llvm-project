@@ -130,19 +130,19 @@ static const int64_t NumberOfInterferences = CandidateVirtRegPos + 1;
 
 // When the model gets trained, it won't understand new instructions unless
 // trained explicitly on them. This is the current cutoff for x86 (current
-// architecture focus for ML reg alloc work). Any instructions over this will be
+// architecture focus for ML regalloc work). Any instructions over this will be
 // replaced with 0s so that the model will still function even with new opcodes.
 // Comes from MCInstrInfo::getNumOpcodes()
 static const int OpcodeCountCutoff = 17716;
 
-// The number of use/def instructions that a specific candidate virtual register
+// The number of instructions that a specific candidate virtual register
 // might have is variable, but libtensorflow only supports models with a fixed
-// number of inputs. Currently encoding the first ten encountered use/def
-// instructions and just ignoring the rest. Padding with zeroes if less than
-// ten.
-static const int ModelMaxSupportedInstructionCount = 33;
-static const std::vector<int64_t> InstructionShape{
-    1, ModelMaxSupportedInstructionCount};
+// number of inputs. Currently encoding the first 100 encountered
+// instructions (across all interfering live ranges) and just ignoring the rest.
+// Padding with zeroes if less than 100.
+static const int ModelMaxSupportedInstructionCount = 300;
+static const std::vector<int64_t> InstructionsAndMappingShape{
+    1, NumberOfInterferences + 1, ModelMaxSupportedInstructionCount};
 
 // Most features are as described above, so we'll reuse this vector in defining
 // them.
@@ -210,8 +210,8 @@ static const std::vector<int64_t> PerLiveRangeShape{1, NumberOfInterferences};
     "largest stage of an interval in this LR")                                 \
   M(int64_t, min_stage, PerLiveRangeShape,                                     \
     "lowest stage of an interval in this LR")                                  \
-  M(int64_t, lr_use_def_instructions, InstructionShape,                        \
-    "use/def instructions for the candidate virtual register")                 \
+  M(int64_t, instructions_and_mapping, InstructionsAndMappingShape,            \
+    "instructions and binary map between instructions and live ranges")        \
   M(float, progress, {1}, "ratio of current queue size to initial size")
 
 // The model learns to pick one of the mask == 1 interferences. This is the name
@@ -293,11 +293,12 @@ protected:
 
   /// Load the features of the given VirtReg (allocated or not) at column Pos,
   /// but if  that can't be evicted, return false instead.
-  bool
-  loadInterferenceFeatures(const LiveInterval &VirtReg, MCRegister PhysReg,
-                           bool IsHint, const SmallVirtRegSet &FixedRegisters,
-                           std::array<float, FeatureIDs::FeatureCount> &Largest,
-                           size_t Pos) const;
+  bool loadInterferenceFeatures(
+      const LiveInterval &VirtReg, MCRegister PhysReg, bool IsHint,
+      const SmallVirtRegSet &FixedRegisters,
+      std::array<float, FeatureIDs::FeatureCount> &Largest, size_t Pos,
+      SmallVectorImpl<std::tuple<SlotIndex, SlotIndex, size_t>>
+          &StartEndSlotIndices) const;
 
 private:
   static float getInitialQueueSize(const MachineFunction &MF);
@@ -310,9 +311,13 @@ private:
   void extractFeatures(const SmallVectorImpl<const LiveInterval *> &Intervals,
                        std::array<float, FeatureIDs::FeatureCount> &Largest,
                        size_t Pos, int64_t IsHint, int64_t LocalIntfsCount,
-                       float NrUrgent) const;
+                       float NrUrgent,
+                       SmallVectorImpl<std::tuple<SlotIndex, SlotIndex, size_t>>
+                           &StartEndSlotIndices) const;
 
-  void extractInstructionFeatures(const LiveInterval &VirtReg) const;
+  void extractInstructionFeatures(
+      SmallVectorImpl<std::tuple<SlotIndex, SlotIndex, size_t>>
+          &StartEndSlotIndices) const;
 
   // Point-in-time: we didn't learn this, so we always delegate to the default.
   bool canEvictHintInterference(
@@ -553,7 +558,9 @@ int64_t MLEvictAdvisor::tryFindEvictionCandidatePosition(
 bool MLEvictAdvisor::loadInterferenceFeatures(
     const LiveInterval &VirtReg, MCRegister PhysReg, bool IsHint,
     const SmallVirtRegSet &FixedRegisters, FeaturesListNormalizer &Largest,
-    size_t Pos) const {
+    size_t Pos,
+    SmallVectorImpl<std::tuple<SlotIndex, SlotIndex, size_t>>
+        &StartEndSlotIndices) const {
   // It is only possible to evict virtual register interference.
   if (Matrix->checkInterference(VirtReg, PhysReg) > LiveRegMatrix::IK_VirtReg) {
     // leave unavailable
@@ -612,7 +619,7 @@ bool MLEvictAdvisor::loadInterferenceFeatures(
   // OK, so if we made it this far, this LR is an eviction candidate, load its
   // features.
   extractFeatures(InterferingIntervals, Largest, Pos, IsHint, LocalIntfs,
-                  NrUrgent);
+                  NrUrgent, StartEndSlotIndices);
   return true;
 }
 
@@ -656,6 +663,8 @@ MCRegister MLEvictAdvisor::tryFindEvictionCandidate(
   // off the corresponding feature column (==do nothing because we already reset
   // all the features to 0) Use Pos to capture the column we load features at -
   // in AllocationOrder order.
+  SmallVector<std::tuple<SlotIndex, SlotIndex, size_t>, NumberOfInterferences>
+      StartEndSlotIndices;
   size_t Pos = 0;
   for (auto I = Order.begin(), E = Order.getOrderLimitEnd(OrderLimit); I != E;
        ++I, ++Pos) {
@@ -666,7 +675,7 @@ MCRegister MLEvictAdvisor::tryFindEvictionCandidate(
       continue;
     }
     if (loadInterferenceFeatures(VirtReg, PhysReg, I.isHint(), FixedRegisters,
-                                 Largest, Pos)) {
+                                 Largest, Pos, StartEndSlotIndices)) {
       ++Available;
       Regs[Pos] = std::make_pair(PhysReg, true);
     }
@@ -683,11 +692,11 @@ MCRegister MLEvictAdvisor::tryFindEvictionCandidate(
   if (!MustFindEviction)
     extractFeatures(SmallVector<const LiveInterval *, 1>(1, &VirtReg), Largest,
                     CandidateVirtRegPos, /*IsHint*/ 0, /*LocalIntfsCount*/ 0,
-                    /*NrUrgent*/ 0.0);
+                    /*NrUrgent*/ 0.0, StartEndSlotIndices);
   assert(InitialQSize > 0.0 && "We couldn't have gotten here if we had "
                                "nothing to allocate initially.");
-  extractInstructionFeatures(VirtReg);
-  // Normalize the features.
+  extractInstructionFeatures(StartEndSlotIndices);
+  //  Normalize the features.
   for (auto &V : Largest)
     V = V ? V : 1.0;
   for (size_t FeatureIndex = 0; FeatureIndex < FeatureIDs::FeatureCount;
@@ -771,7 +780,9 @@ MLEvictAdvisor::getLIFeatureComponents(const LiveInterval &LI) const {
 void MLEvictAdvisor::extractFeatures(
     const SmallVectorImpl<const LiveInterval *> &Intervals,
     std::array<float, FeatureIDs::FeatureCount> &Largest, size_t Pos,
-    int64_t IsHint, int64_t LocalIntfsCount, float NrUrgent) const {
+    int64_t IsHint, int64_t LocalIntfsCount, float NrUrgent,
+    SmallVectorImpl<std::tuple<SlotIndex, SlotIndex, size_t>>
+        &StartEndSlotIndices) const {
   int64_t NrDefsAndUses = 0;
   int64_t NrBrokenHints = 0;
   double R = 0.0;
@@ -818,6 +829,11 @@ void MLEvictAdvisor::extractFeatures(
 
     HintWeights += LIFC.HintWeights;
     NrRematerializable += LIFC.IsRemat;
+
+    for (auto CurrentSegment : LI) {
+      StartEndSlotIndices.push_back(
+          std::make_tuple(CurrentSegment.start, CurrentSegment.end, Pos));
+    }
   }
   size_t Size = 0;
   if (!Intervals.empty()) {
@@ -861,15 +877,73 @@ void MLEvictAdvisor::extractFeatures(
 }
 
 void MLEvictAdvisor::extractInstructionFeatures(
-    const LiveInterval &VirtReg) const {
+    SmallVectorImpl<std::tuple<SlotIndex, SlotIndex, size_t>>
+        &StartEndSlotIndices) const {
+  std::sort(StartEndSlotIndices.begin(), StartEndSlotIndices.end(),
+            [](std::tuple<SlotIndex, SlotIndex, size_t> A,
+               std::tuple<SlotIndex, SlotIndex, size_t> B) {
+              return std::get<0>(A) < std::get<0>(B);
+            });
   size_t InstructionCount = 0;
-  for (auto MII = MF.getRegInfo().reg_instr_begin(VirtReg.reg());
-       MII != MF.getRegInfo().reg_instr_end() &&
-       InstructionCount < ModelMaxSupportedInstructionCount;
-       ++MII, ++InstructionCount) {
-    Runner->getTensor<int64_t>(
-        FeatureIDs::lr_use_def_instructions)[InstructionCount] =
-        MII->getOpcode();
+  size_t CurrentSegment = 0;
+  SlotIndex CurrentIndex = std::get<0>(StartEndSlotIndices[0]);
+  while (true) {
+    while (CurrentIndex <= std::get<1>(StartEndSlotIndices[CurrentSegment]) &&
+           InstructionCount < ModelMaxSupportedInstructionCount) {
+      // set instruction
+      auto *CurrentMachineInstruction =
+          LIS->getInstructionFromIndex(CurrentIndex);
+      if (CurrentMachineInstruction == nullptr) {
+        CurrentIndex = CurrentIndex.getNextIndex();
+        continue;
+      }
+      auto CurrentOpcode = CurrentMachineInstruction->getOpcode();
+      Runner->getTensor<int64_t>(
+          FeatureIDs::instructions_and_mapping)[InstructionCount] =
+          CurrentOpcode < OpcodeCountCutoff ? CurrentOpcode : 0;
+      // set mask for instruction
+      // add 1 to the resulting position as all of the segment indices are
+      // offset 1 as the first row is instruction opcodes
+      auto CurrentSegmentPosition =
+          std::get<2>(StartEndSlotIndices[CurrentSegment]) + 1;
+      Runner->getTensor<int64_t>(FeatureIDs::instructions_and_mapping)
+          [CurrentSegmentPosition * ModelMaxSupportedInstructionCount +
+           InstructionCount] = 1;
+      // handle the overlapping LR case
+      size_t OverlapCheckCurrentSegment = CurrentSegment + 1;
+      while (OverlapCheckCurrentSegment < StartEndSlotIndices.size()) {
+        if (std::get<0>(StartEndSlotIndices[OverlapCheckCurrentSegment]) <=
+            CurrentIndex) {
+          auto OverlapCurrentSegmentPosition =
+              std::get<2>(StartEndSlotIndices[OverlapCheckCurrentSegment]) + 1;
+          Runner->getTensor<int64_t>(FeatureIDs::instructions_and_mapping)
+              [OverlapCurrentSegmentPosition *
+                   ModelMaxSupportedInstructionCount +
+               InstructionCount] = 1;
+        } else {
+          break;
+        }
+        ++OverlapCheckCurrentSegment;
+      }
+      ++InstructionCount;
+      CurrentIndex = CurrentIndex.getNextIndex();
+    }
+    // if we've just finished processing through the last segment or if we've
+    // hit the maximum number of instructions, break out of the loop.
+    if (CurrentSegment == StartEndSlotIndices.size() - 1 ||
+        InstructionCount >= ModelMaxSupportedInstructionCount) {
+      break;
+    }
+    // just finished processing the previous segment, transition to the next one
+    if (std::get<0>(StartEndSlotIndices[CurrentSegment + 1]) <=
+        std::get<1>(StartEndSlotIndices[CurrentSegment])) {
+      // segments are overlapping.
+      ++CurrentSegment;
+    } else {
+      // segments are not overlapping.
+      CurrentIndex = std::get<0>(StartEndSlotIndices[CurrentSegment + 1]);
+      ++CurrentSegment;
+    }
   }
 }
 
