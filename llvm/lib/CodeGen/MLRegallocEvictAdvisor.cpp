@@ -137,12 +137,12 @@ static const int OpcodeCountCutoff = 17716;
 
 // The number of instructions that a specific candidate virtual register
 // might have is variable, but libtensorflow only supports models with a fixed
-// number of inputs. Currently encoding the first 100 encountered
-// instructions (across all interfering live ranges) and just ignoring the rest.
-// Padding with zeroes if less than 100.
+// number of inputs. Encodes the number of instructions (across all interfering
+// live ranges) set in the variable and just ignoring the rest. Padding with
+// zeroes if less than 100.
 static const int ModelMaxSupportedInstructionCount = 300;
 static const std::vector<int64_t> InstructionsAndMappingShape{
-    1, NumberOfInterferences + 1, ModelMaxSupportedInstructionCount};
+    NumberOfInterferences + 1, ModelMaxSupportedInstructionCount};
 
 // Most features are as described above, so we'll reuse this vector in defining
 // them.
@@ -893,7 +893,7 @@ void MLEvictAdvisor::extractInstructionFeatures(
       // set instruction
       auto *CurrentMachineInstruction =
           LIS->getInstructionFromIndex(CurrentIndex);
-      if (CurrentMachineInstruction == nullptr) {
+      if (!CurrentMachineInstruction) {
         CurrentIndex = CurrentIndex.getNextIndex();
         continue;
       }
@@ -912,17 +912,15 @@ void MLEvictAdvisor::extractInstructionFeatures(
       // handle the overlapping LR case
       size_t OverlapCheckCurrentSegment = CurrentSegment + 1;
       while (OverlapCheckCurrentSegment < StartEndSlotIndices.size()) {
-        if (std::get<0>(StartEndSlotIndices[OverlapCheckCurrentSegment]) <=
+        if (std::get<0>(StartEndSlotIndices[OverlapCheckCurrentSegment]) >
             CurrentIndex) {
-          auto OverlapCurrentSegmentPosition =
-              std::get<2>(StartEndSlotIndices[OverlapCheckCurrentSegment]) + 1;
-          Runner->getTensor<int64_t>(FeatureIDs::instructions_and_mapping)
-              [OverlapCurrentSegmentPosition *
-                   ModelMaxSupportedInstructionCount +
-               InstructionCount] = 1;
-        } else {
           break;
         }
+        auto OverlapCurrentSegmentPosition =
+            std::get<2>(StartEndSlotIndices[OverlapCheckCurrentSegment]) + 1;
+        Runner->getTensor<int64_t>(FeatureIDs::instructions_and_mapping)
+            [OverlapCurrentSegmentPosition * ModelMaxSupportedInstructionCount +
+             InstructionCount] = 1;
         ++OverlapCheckCurrentSegment;
       }
       ++InstructionCount;
@@ -935,15 +933,13 @@ void MLEvictAdvisor::extractInstructionFeatures(
       break;
     }
     // just finished processing the previous segment, transition to the next one
-    if (std::get<0>(StartEndSlotIndices[CurrentSegment + 1]) <=
+    if (std::get<0>(StartEndSlotIndices[CurrentSegment + 1]) >
         std::get<1>(StartEndSlotIndices[CurrentSegment])) {
-      // segments are overlapping.
-      ++CurrentSegment;
-    } else {
-      // segments are not overlapping.
+      // segments aren't overlapping, skip to the beginning of the next segment
       CurrentIndex = std::get<0>(StartEndSlotIndices[CurrentSegment + 1]);
       ++CurrentSegment;
     }
+    ++CurrentSegment;
   }
 }
 
