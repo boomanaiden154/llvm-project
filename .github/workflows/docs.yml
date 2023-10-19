@@ -60,5 +60,5 @@ jobs:
         if: steps.docs-changed-subprojects.outputs.clang_any_changed == 'true'
         run: |
           cmake -B clang-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_SPHINX=ON -DSPHINX_OUTPUT_HTML=ON -DSPHINX_OUTPUT_MAN=ON ./llvm
-          TZ=UTC ninja -C llvm-build docs-clang-html docs-clang-man
+          TZ=UTC ninja -C clang-build docs-clang-html docs-clang-man
 
