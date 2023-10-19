@@ -12,6 +12,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'clang-docs-ci-test'
     paths:
       - 'llvm/docs/**'
       - 'clang/docs/**'
