@@ -9,13 +9,10 @@ jobs:
   code_formatter:
     runs-on: ubuntu-latest
     steps:
-      - name: 'Calculate fetch depth'
-        run: echo "PR_FETCH_DEPTH=$(( ${{ github.event.pull_request.commits }} + 1 ))" >> "${GITHUB_ENV}"
       - name: Fetch LLVM sources
         uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ env.PR_FETCH_DEPTH }}
-          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: ${{ github.event.pull_request.commits }}
 
       - name: Get changed files
         id: changed-files
