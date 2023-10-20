@@ -7,17 +7,20 @@ jobs:
   code_formatter:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch LLVM sources
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
+      # Get changed files before we do a checkout to force the action to use
+      # the GH API to look for changed files and avoid an expensive partial
+      # fetch operation.
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v39
         with:
           separator: ","
-          fetch_depth: 100 # Fetches only the last 10 commits
+
+      - name: Fetch LLVM sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event.pull_request.commits }}
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: "Listed files"
         run: |
