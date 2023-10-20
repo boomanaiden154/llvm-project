@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// This is a line that is just going to be way too long to be formatted properly so hopefully clang-format will complain about the length
+
 #include "AllocationOrder.h"
 #include "RegAllocEvictionAdvisor.h"
 #include "RegAllocGreedy.h"
