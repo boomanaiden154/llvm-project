@@ -11,7 +11,7 @@ permissions:
 on:
   push:
     branches:
-      - 'main'
+      - 'docs-changed-testing-2'
     paths:
       - 'llvm/docs/**'
       - 'clang/docs/**'
