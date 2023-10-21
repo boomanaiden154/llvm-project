@@ -15,10 +15,12 @@ on:
     paths:
       - 'llvm/docs/**'
       - 'clang/docs/**'
+      - 'libc/docs/**'
   pull_request:
     paths:
       - 'llvm/docs/**'
       - 'clang/docs/**'
+      - 'libc/docs/**'
 
 jobs:
   check-docs-build:
@@ -47,6 +49,8 @@ jobs:
               - 'llvm/docs/**'
             clang:
               - 'clang/docs/**'
+            libc:
+              - 'libc/docs/**'
       - name: Setup Python env
         uses: actions/setup-python@v4
         with:
@@ -69,4 +73,10 @@ jobs:
         run: |
           cmake -B clang-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_SPHINX=ON ./llvm
           TZ=UTC ninja -C clang-build docs-clang-html docs-clang-man
+      - name: Build libc docs
+        if: steps.docs-changed-subprojects.outputs.libc_any_changed == 'true'
+        run: |
+          cmake -B libc-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_RUNTIMES="libc" -DLLVM_ENABLE_SPHINX=ON ./runtimes
+          TZ=UTC ninja -C libc-build docs-libc-html
+
 
