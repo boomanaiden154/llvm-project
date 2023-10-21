@@ -15,10 +15,12 @@ on:
     paths:
       - 'llvm/docs/**'
       - 'clang/docs/**'
+      - 'libcxx/docs/**'
   pull_request:
     paths:
       - 'llvm/docs/**'
       - 'clang/docs/**'
+      - 'libcxx/docs/**'
 
 jobs:
   check-docs-build:
@@ -47,6 +49,8 @@ jobs:
               - 'llvm/docs/**'
             clang:
               - 'clang/docs/**'
+            libcxx:
+              - 'libcxx/docs/**'
       - name: Setup Python env
         uses: actions/setup-python@v4
         with:
@@ -69,4 +73,9 @@ jobs:
         run: |
           cmake -B clang-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_SPHINX=ON ./llvm
           TZ=UTC ninja -C clang-build docs-clang-html docs-clang-man
+      - name: Build libcxx docs
+        if: steps.docs-changed-subprojects.outputs.libcxx_any_changed == 'true'
+        run: |
+          cmake -B libcxx-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_RUNTIMES="libcxxabi;libcxx" -DLLVM_ENABLE_SPHINX=ON ./runtimes
+          TZ=UTC ninja -C libcxx-build docs-libcxx-html
 
