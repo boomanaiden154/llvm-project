@@ -42,12 +42,7 @@ jobs:
               - 'clang-tools-extra/docs/**'
             lldb:
               - 'lldb/docs/**'
-      - name: Fetch LLVM sources (PR)
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-      - name: Fetch LLVM sources (push)
+      - name: Fetch LLVM sources
         if: ${{ github.event_name == 'push' }}
         uses: actions/checkout@v4
         with:
