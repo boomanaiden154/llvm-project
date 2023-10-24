@@ -40,6 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: ${{ env.PR_FETCH_DEPTH }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
       - name: Fetch LLVM sources (push)
         if: ${{ github.event_name == 'push' }}
         uses: actions/checkout@v4
