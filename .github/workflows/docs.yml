@@ -132,6 +132,6 @@ jobs:
       - name: Build OpenMP docs
         if: steps.docs-changed-subprojects.outputs.openmp_any_changed == 'true'
         run: |
-          cmake -B openmp-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;openmp" -DLLVM_ENABLE_SPHINX=ON ../llvm
+          cmake -B openmp-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;openmp" -DLLVM_ENABLE_SPHINX=ON ./llvm
           TZ=UTC ninja -C openmp-build docs-openmp-html
 
