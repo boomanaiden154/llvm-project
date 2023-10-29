@@ -15,6 +15,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// This comment is going to be way too long and should definitley make the code formatter scream at me,
+
 #include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
