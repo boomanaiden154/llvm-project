@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// this is just a test to induce a merge conflict
+
 #include "AllocationOrder.h"
 #include "RegAllocEvictionAdvisor.h"
 #include "RegAllocGreedy.h"
