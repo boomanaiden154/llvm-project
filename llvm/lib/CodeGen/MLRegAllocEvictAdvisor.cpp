@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// this is just a test and the code formatter should succeed
+
 #include "AllocationOrder.h"
 #include "RegAllocEvictionAdvisor.h"
 #include "RegAllocGreedy.h"
