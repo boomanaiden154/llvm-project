@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// This is a commit that will certainly cause the code formatter to complain because this line is way too long.
+
 #include "AllocationOrder.h"
 #include "RegAllocEvictionAdvisor.h"
 #include "RegAllocGreedy.h"
