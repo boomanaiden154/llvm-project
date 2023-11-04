@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// this is another test that the code formatter should pick up on and fix, hopefully without too much fuss because gosh dang
+
 #include "AllocationOrder.h"
 #include "RegAllocGreedy.h"
 #include "RegAllocPriorityAdvisor.h"
