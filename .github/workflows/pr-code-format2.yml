@@ -1,0 +1,11 @@
+name: "Check code formatting"
+on: pull_request
+
+jobs:
+  code_formatter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch PR sources
+        uses: actions/checkout@v4
+      - name: Install python dependencies
+        run: git log -n 1
