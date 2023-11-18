@@ -1077,6 +1077,7 @@ void extractMBBFrequency(const SlotIndex CurrentIndex,
 }
 
 // Development mode-specific implementations
+// This is another comment that shouldn't make a difference
 #ifdef LLVM_HAVE_TFLITE
 
 RegAllocEvictionAdvisorAnalysis *llvm::createDevelopmentModeAdvisor() {
