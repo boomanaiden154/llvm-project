@@ -21,7 +21,7 @@
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
-#include "llvm/ExecutionEngine/SectionMemoryManager.h"
+#include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -29,12 +29,16 @@
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Object/SymbolSize.h"
 
 #ifdef HAVE_LIBPFM
 #include "perfmon/perf_event.h"
 #endif // HAVE_LIBPFM
 
 namespace llvm {
+
+extern ExitOnError ExitOnErr;
+
 namespace exegesis {
 
 static constexpr const char ModuleID[] = "ExegesisInfoTest";
@@ -105,7 +109,7 @@ MachineFunction &createVoidVoidPtrMachineFunction(StringRef FunctionName,
   FunctionType *FunctionType =
       FunctionType::get(ReturnType, {MemParamType}, false);
   Function *const F = Function::Create(
-      FunctionType, GlobalValue::InternalLinkage, FunctionName, Module);
+      FunctionType, GlobalValue::ExternalLinkage, FunctionName, Module);
   BasicBlock *BB = BasicBlock::Create(Module->getContext(), "", F);
   new UnreachableInst(Module->getContext(), BB);
   return MMI->getOrCreateMachineFunction(*F);
@@ -324,59 +328,21 @@ object::OwningBinary<object::ObjectFile> getObjectFromFile(StringRef Filename) {
   return cantFail(object::ObjectFile::createObjectFile(Filename));
 }
 
-namespace {
-
-// Implementation of this class relies on the fact that a single object with a
-// single function will be loaded into memory.
-class TrackingSectionMemoryManager : public SectionMemoryManager {
-public:
-  explicit TrackingSectionMemoryManager(uintptr_t *CodeSize)
-      : CodeSize(CodeSize) {}
-
-  uint8_t *allocateCodeSection(uintptr_t Size, unsigned Alignment,
-                               unsigned SectionID,
-                               StringRef SectionName) override {
-    *CodeSize = Size;
-    return SectionMemoryManager::allocateCodeSection(Size, Alignment, SectionID,
-                                                     SectionName);
-  }
-
-private:
-  uintptr_t *const CodeSize = nullptr;
-};
-
-} // namespace
-
 ExecutableFunction::ExecutableFunction(
     std::unique_ptr<LLVMTargetMachine> TM,
     object::OwningBinary<object::ObjectFile> &&ObjectFileHolder)
     : Context(std::make_unique<LLVMContext>()) {
   assert(ObjectFileHolder.getBinary() && "cannot create object file");
-  // Initializing the execution engine.
-  // We need to use the JIT EngineKind to be able to add an object file.
-  LLVMLinkInMCJIT();
-  uintptr_t CodeSize = 0;
-  std::string Error;
-  ExecEngine.reset(
-      EngineBuilder(createModule(Context, TM->createDataLayout()))
-          .setErrorStr(&Error)
-          .setMCPU(TM->getTargetCPU())
-          .setEngineKind(EngineKind::JIT)
-          .setMCJITMemoryManager(
-              std::make_unique<TrackingSectionMemoryManager>(&CodeSize))
-          .create(TM.release()));
-  if (!ExecEngine)
-    report_fatal_error(Twine(Error));
-  // Adding the generated object file containing the assembled function.
-  // The ExecutionEngine makes sure the object file is copied into an
-  // executable page.
-  ExecEngine->addObjectFile(std::move(ObjectFileHolder));
-  // Fetching function bytes.
-  const uint64_t FunctionAddress = ExecEngine->getFunctionAddress(FunctionID);
+  auto SymbolSizes = object::computeSymbolSizes(*ObjectFileHolder.getBinary());
+  assert(SymbolSizes.size() == 3);
+  uintptr_t CodeSize = std::get<1>(SymbolSizes[2]);
+  ExecJIT = ExitOnErr(orc::LLJITBuilder().create());
+  ExitOnErr(ExecJIT->addObjectFile(std::get<1>(ObjectFileHolder.takeBinary())));
+  ExecJIT->getMainJITDylib().dump(dbgs());
+  const uint64_t FunctionAddress = ExitOnErr(ExecJIT->lookup(FunctionID)).getValue();
   assert(isAligned(kFunctionAlignment, FunctionAddress) &&
          "function is not properly aligned");
-  FunctionBytes =
-      StringRef(reinterpret_cast<const char *>(FunctionAddress), CodeSize);
+  FunctionBytes = StringRef(reinterpret_cast<const char*>(FunctionAddress), CodeSize);
 }
 
 Error getBenchmarkFunctionBytes(const StringRef InputData,
