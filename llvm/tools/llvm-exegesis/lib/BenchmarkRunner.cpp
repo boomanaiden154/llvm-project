@@ -50,6 +50,9 @@
 namespace llvm {
 namespace exegesis {
 
+static cl::opt<bool> NoPtrace("no-ptrace", cl::desc("Whether or not to use ptrace. Set to off to attach a debugger to the subprocess."),
+		cl::cat(BenchmarkOptions), cl::init(false));
+
 BenchmarkRunner::BenchmarkRunner(const LLVMState &State, Benchmark::ModeE Mode,
                                  BenchmarkPhaseSelectorE BenchmarkPhaseSelector,
                                  ExecutionModeE ExecutionMode)
@@ -299,20 +302,22 @@ private:
     if (SendError)
       return SendError;
 
-    if (ptrace(PTRACE_ATTACH, ParentOrChildPID, NULL, NULL) != 0)
-      return make_error<Failure>("Failed to attach to the child process: " +
-                                 Twine(strerror(errno)));
+    if (!NoPtrace) {
+      if (ptrace(PTRACE_ATTACH, ParentOrChildPID, NULL, NULL) != 0)
+        return make_error<Failure>("Failed to attach to the child process: " +
+                                   Twine(strerror(errno)));
 
-    if (wait(NULL) == -1) {
-      return make_error<Failure>(
-          "Failed to wait for child process to stop after attaching: " +
-          Twine(strerror(errno)));
+      if (wait(NULL) == -1) {
+        return make_error<Failure>(
+            "Failed to wait for child process to stop after attaching: " +
+            Twine(strerror(errno)));
+      }
+
+      if (ptrace(PTRACE_CONT, ParentOrChildPID, NULL, NULL) != 0)
+        return make_error<Failure>(
+            "Failed to continue execution of the child process: " +
+            Twine(strerror(errno)));
     }
-
-    if (ptrace(PTRACE_CONT, ParentOrChildPID, NULL, NULL) != 0)
-      return make_error<Failure>(
-          "Failed to continue execution of the child process: " +
-          Twine(strerror(errno)));
 
     int ChildStatus;
     if (wait(&ChildStatus) == -1) {
