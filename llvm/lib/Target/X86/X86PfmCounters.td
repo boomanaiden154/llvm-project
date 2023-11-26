@@ -91,7 +91,7 @@ def : PfmCountersBinding<"corei7", NehalemPfmCounters>;
 def : PfmCountersBinding<"westmere", NehalemPfmCounters>;
 
 def SandyBridgePfmCounters : ProcPfmCounters {
-  let CycleCounter = UnhaltedCoreCyclesPfmCounter;
+  let CycleCounter = PfmCounter<"cycles_not_in_halt">;
   let UopsCounter = UopsIssuedPfmCounter;
   let IssueCounters = [
     PfmIssueCounter<"SBPort0",  "uops_dispatched_port:port_0">,

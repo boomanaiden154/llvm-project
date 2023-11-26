@@ -20,7 +20,9 @@
 #include <cassert>
 #include <cstddef>
 #include <errno.h>  // for erno
-#include <string.h> // for strerror()
+#include <string.h> // for strerr
+
+#include <iostream>
 
 namespace llvm {
 namespace exegesis {
