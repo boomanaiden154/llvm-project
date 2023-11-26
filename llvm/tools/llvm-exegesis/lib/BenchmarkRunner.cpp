@@ -373,6 +373,9 @@ private:
                                  Twine(strerror(errno)));
     }
 
+    if (ChildSignalInfo.si_signo == SIGSEGV)
+      return make_error<SnippetCrash>(reinterpret_cast<intptr_t>(ChildSignalInfo.si_addr));
+
     return make_error<SnippetCrash>(
         "The benchmarking subprocess sent unexpected signal: " +
         Twine(strsignal(ChildSignalInfo.si_signo)));
@@ -575,10 +578,7 @@ Expected<Benchmark> BenchmarkRunner::runConfiguration(
   auto NewMeasurements = runMeasurements(**Executor);
 
   if (Error E = NewMeasurements.takeError()) {
-    if (!E.isA<SnippetCrash>())
-      return std::move(E);
-    InstrBenchmark.Error = toString(std::move(E));
-    return std::move(InstrBenchmark);
+    return std::move(E);
   }
   assert(InstrBenchmark.NumRepetitions > 0 && "invalid NumRepetitions");
   for (BenchmarkMeasure &BM : *NewMeasurements) {

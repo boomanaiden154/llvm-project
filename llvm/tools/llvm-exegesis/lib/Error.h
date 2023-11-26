@@ -41,11 +41,14 @@ private:
 class SnippetCrash : public ErrorInfo<SnippetCrash> {
 public:
   static char ID;
-  SnippetCrash(const Twine &S) : Msg(S.str()) {}
+  SnippetCrash(const Twine &S) : Msg(S.str()), SegfaultAddress(0) {}
+  SnippetCrash(const intptr_t Addr) : SegfaultAddress(Addr) {}
 
   void log(raw_ostream &OS) const override;
 
   std::error_code convertToErrorCode() const override;
+
+  intptr_t SegfaultAddress;
 
 private:
   std::string Msg;
