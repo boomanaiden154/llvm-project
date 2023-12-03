@@ -44,6 +44,8 @@ jobs:
         run: |
           echo "Formatting files:"
           echo "$CHANGED_FILES"
+          echo "${{ github.event.pull_request.base.sha }}"
+          echo "${{ github.event.pull_request.head.sha }}"
 
       - name: Install clang-format
         uses: aminya/setup-cpp@v1
