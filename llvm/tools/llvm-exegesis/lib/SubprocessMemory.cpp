@@ -47,6 +47,7 @@ Error SubprocessMemory::addMemoryDefinition(
     pid_t ProcessPID) {
   SharedMemoryNames.reserve(MemoryDefinitions.size());
   for (auto &[Name, MemVal] : MemoryDefinitions) {
+    dbgs() << Name << ":" << MemVal.Index << ":" << *MemVal.Value.getRawData() << ":" << MemVal.SizeBytes << ":" << MemVal.Value.getBitWidth() << "\n";
     std::string SharedMemoryName = "/" + std::to_string(ProcessPID) + "memdef" +
                                    std::to_string(MemVal.Index);
     SharedMemoryNames.push_back(SharedMemoryName);
@@ -111,8 +112,9 @@ Expected<int> SubprocessMemory::setupAuxiliaryMemoryInSubprocess(
 
 SubprocessMemory::~SubprocessMemory() {
   for (std::string SharedMemoryName : SharedMemoryNames) {
+    dbgs() << SharedMemoryName << "\n";
     if (shm_unlink(SharedMemoryName.c_str()) != 0) {
-      errs() << "Failed to unlink shared memory section: " << strerror(errno)
+      errs() << "Failed to unlink shared memory section" << SharedMemoryName << ": " << strerror(errno)
              << "\n";
     }
   }

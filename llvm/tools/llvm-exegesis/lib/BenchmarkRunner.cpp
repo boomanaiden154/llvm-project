@@ -40,12 +40,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#if defined(__GLIBC__) && __has_include(<sys/rseq.h>) && defined(HAVE_BUILTIN_THREAD_POINTER)
 #include <sys/rseq.h>
-#if defined(RSEQ_SIG) && defined(SYS_rseq)
 #define GLIBC_INITS_RSEQ
-#endif
-#endif
 #endif
 
 namespace llvm {

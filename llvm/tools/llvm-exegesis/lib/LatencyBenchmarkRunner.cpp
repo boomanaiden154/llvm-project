@@ -68,7 +68,7 @@ Expected<std::vector<BenchmarkMeasure>> LatencyBenchmarkRunner::runMeasurements(
   // Cycle measurements include some overhead from the kernel. Repeat the
   // measure several times and return the aggregated value, as specified by
   // ResultAggMode.
-  constexpr const int NumMeasurements = 30;
+  constexpr const int NumMeasurements = 1;
   llvm::SmallVector<int64_t, 4> AccumulatedValues;
   double MinVariance = std::numeric_limits<double>::infinity();
   const char *CounterName = State.getPfmCounters().CycleCounter;
