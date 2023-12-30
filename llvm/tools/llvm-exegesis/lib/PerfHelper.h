@@ -82,7 +82,8 @@ private:
 class Counter {
 public:
   // event: the PerfEvent to measure.
-  explicit Counter(PerfEvent &&event, pid_t ProcessID = 0);
+  explicit Counter(PerfEvent &&event, std::vector<PerfEvent> &&ValEvents,
+		   pid_t ProcessID = 0);
 
   Counter(const Counter &) = delete;
   Counter(Counter &&other) = default;
@@ -107,17 +108,22 @@ public:
   virtual llvm::Expected<llvm::SmallVector<int64_t, 4>>
   readOrError(StringRef FunctionBytes = StringRef()) const;
 
+  virtual llvm::Expected<llvm::SmallVector<int64_t>>
+  readValidationCountersOrError() const;
+
   virtual int numValues() const;
 
   int getFileDescriptor() const { return FileDescriptor; }
 
 protected:
   PerfEvent Event;
+  std::vector<PerfEvent> ValidationEvents;
   int FileDescriptor = -1;
   bool IsDummyEvent;
+  std::vector<int> ValidationFileDescriptors;
 
 private:
-  void initRealEvent(const PerfEvent &E, pid_t ProcessID);
+  void initRealEvent(pid_t ProcessID);
 };
 
 } // namespace pfm

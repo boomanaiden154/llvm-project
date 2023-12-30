@@ -77,8 +77,8 @@ struct BenchmarkKey {
 
 struct BenchmarkMeasure {
   // A helper to create an unscaled BenchmarkMeasure.
-  static BenchmarkMeasure Create(std::string Key, double Value) {
-    return {Key, Value, Value};
+  static BenchmarkMeasure Create(std::string Key, double Value, SmallVector<int64_t> ValCounterValues) {
+    return {Key, Value, Value, ValCounterValues};
   }
   std::string Key;
   // This is the per-instruction value, i.e. measured quantity scaled per
@@ -87,6 +87,8 @@ struct BenchmarkMeasure {
   // This is the per-snippet value, i.e. measured quantity for one repetition of
   // the whole snippet.
   double PerSnippetValue;
+  // These are the validation counter values
+  SmallVector<int64_t> ValidationCounters;
 };
 
 // The result of an instruction benchmark.

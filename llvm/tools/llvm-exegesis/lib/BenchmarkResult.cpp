@@ -203,6 +203,7 @@ template <> struct MappingTraits<exegesis::BenchmarkMeasure> {
     }
     Io.mapRequired("value", Obj.PerInstructionValue);
     Io.mapOptional("per_snippet_value", Obj.PerSnippetValue);
+    Io.mapOptional("validation_counters", Obj.ValidationCounters);
   }
   static const bool flow = true;
 };

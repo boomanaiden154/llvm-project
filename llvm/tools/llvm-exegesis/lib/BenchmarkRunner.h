@@ -93,14 +93,16 @@ public:
     virtual ~FunctionExecutor();
 
     Expected<llvm::SmallVector<int64_t, 4>>
-    runAndSample(const char *Counters, ArrayRef<std::string> ValidationCounters) const;
+    runAndSample(const char *Counters, ArrayRef<std::string> ValidationCounters,
+                 SmallVectorImpl<int64_t> &ValidationCounterValues) const;
 
   protected:
     static void
     accumulateCounterValues(const llvm::SmallVectorImpl<int64_t> &NewValues,
                             llvm::SmallVectorImpl<int64_t> *Result);
     virtual Expected<llvm::SmallVector<int64_t, 4>>
-    runWithCounter(StringRef CounterName, ArrayRef<std::string> ValidationCounters) const = 0;
+    runWithCounter(StringRef CounterName, ArrayRef<std::string> ValidationCounters,
+                   SmallVectorImpl<int64_t> &ValidationCounterValues) const = 0;
   };
 
 protected:

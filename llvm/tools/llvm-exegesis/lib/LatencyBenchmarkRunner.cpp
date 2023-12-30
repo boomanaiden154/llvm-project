@@ -85,8 +85,10 @@ Expected<std::vector<BenchmarkMeasure>> LatencyBenchmarkRunner::runMeasurements(
   }
   // Values count for each run.
   int ValuesCount = 0;
+  SmallVector<int64_t> ValidationCounterValues(ValCountersToRun.size(),-1);
   for (size_t I = 0; I < NumMeasurements; ++I) {
-    auto ExpectedCounterValues = Executor.runAndSample(CounterName, ValCountersToRun);
+    auto ExpectedCounterValues = Executor.runAndSample(CounterName, ValCountersToRun,
+                                                       ValidationCounterValues);
     if (!ExpectedCounterValues)
       return ExpectedCounterValues.takeError();
     ValuesCount = ExpectedCounterValues.get().size();
@@ -122,25 +124,25 @@ Expected<std::vector<BenchmarkMeasure>> LatencyBenchmarkRunner::runMeasurements(
     std::vector<BenchmarkMeasure> Result;
     Result.reserve(AccumulatedValues.size());
     for (const int64_t Value : AccumulatedValues)
-      Result.push_back(BenchmarkMeasure::Create(ModeName, Value));
+      Result.push_back(BenchmarkMeasure::Create(ModeName, Value, ValidationCounterValues));
     return std::move(Result);
   }
   case Benchmark::Min: {
     std::vector<BenchmarkMeasure> Result;
     Result.push_back(
-        BenchmarkMeasure::Create(ModeName, findMin(AccumulatedValues)));
+        BenchmarkMeasure::Create(ModeName, findMin(AccumulatedValues), ValidationCounterValues));
     return std::move(Result);
   }
   case Benchmark::Max: {
     std::vector<BenchmarkMeasure> Result;
     Result.push_back(
-        BenchmarkMeasure::Create(ModeName, findMax(AccumulatedValues)));
+        BenchmarkMeasure::Create(ModeName, findMax(AccumulatedValues), ValidationCounterValues));
     return std::move(Result);
   }
   case Benchmark::Mean: {
     std::vector<BenchmarkMeasure> Result;
     Result.push_back(
-        BenchmarkMeasure::Create(ModeName, findMean(AccumulatedValues)));
+        BenchmarkMeasure::Create(ModeName, findMean(AccumulatedValues), ValidationCounterValues));
     return std::move(Result);
   }
   }

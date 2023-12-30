@@ -282,7 +282,7 @@ def ZnVer2PfmCounters : ProcPfmCounters {
     PfmIssueCounter<"Zn2Divider", "div_op_count">
   ];
   let ValidationCounters = [
-    PfmValidationCounter<"l1dcacheloadmiss", "L1-DCACHE-LOAD-MISS">
+    PfmValidationCounter<"l1dcacheloadmiss", "RETIRED_INSTRUCTIONS">
   ];
 }
 def : PfmCountersBinding<"znver2", ZnVer2PfmCounters>;

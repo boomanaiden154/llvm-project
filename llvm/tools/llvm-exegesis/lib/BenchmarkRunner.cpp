@@ -71,7 +71,8 @@ void BenchmarkRunner::FunctionExecutor::accumulateCounterValues(
 
 Expected<llvm::SmallVector<int64_t, 4>>
 BenchmarkRunner::FunctionExecutor::runAndSample(const char *Counters,
-		                                ArrayRef<std::string> ValidationCounters) const {
+		                                ArrayRef<std::string> ValidationCounters,
+                                                SmallVectorImpl<int64_t> &ValidationCounterValues) const {
   // We sum counts when there are several counters for a single ProcRes
   // (e.g. P23 on SandyBridge).
   llvm::SmallVector<int64_t, 4> CounterValues;
@@ -80,7 +81,7 @@ BenchmarkRunner::FunctionExecutor::runAndSample(const char *Counters,
   for (auto &CounterName : CounterNames) {
     CounterName = CounterName.trim();
     Expected<SmallVector<int64_t, 4>> ValueOrError =
-        runWithCounter(CounterName, ValidationCounters);
+        runWithCounter(CounterName, ValidationCounters, ValidationCounterValues);
     if (!ValueOrError)
       return ValueOrError.takeError();
     accumulateCounterValues(ValueOrError.get(), &CounterValues);
@@ -121,7 +122,8 @@ private:
   }
 
   Expected<llvm::SmallVector<int64_t, 4>>
-  runWithCounter(StringRef CounterName, ArrayRef<std::string> ValidationCounters) const override {
+  runWithCounter(StringRef CounterName, ArrayRef<std::string> ValidationCounters,
+                 SmallVectorImpl<int64_t> &ValidationCounterValues) const override {
     const ExegesisTarget &ET = State.getExegesisTarget();
     char *const ScratchPtr = Scratch->ptr();
     auto CounterOrError = ET.createCounter(CounterName, State, ValidationCounters);
@@ -361,6 +363,15 @@ private:
         // The child exited succesfully, read counter values and return
         // success
         CounterValues[0] = Counter->read();
+
+        auto ValidationValuesOrErr = Counter->readValidationCountersOrError();
+        if (!ValidationValuesOrErr)
+          return ValidationValuesOrErr.takeError();
+
+        ArrayRef RealValidationValues = *ValidationValuesOrErr;
+        for (size_t I = 0; I < RealValidationValues.size(); ++I)
+          ValidationCounterValues[I] = RealValidationValues[I];
+
         return Error::success();
       }
       // The child exited, but not successfully
@@ -460,12 +471,12 @@ private:
   }
 
   Expected<llvm::SmallVector<int64_t, 4>>
-  runWithCounter(StringRef CounterName, ArrayRef<std::string> ValidationCounters) const override {
+  runWithCounter(StringRef CounterName, ArrayRef<std::string> ValidationCounters,
+                 SmallVectorImpl<int64_t> &ValidationCounterValues) const override {
     SmallVector<int64_t, 4> Value(1, 0);
-    SmallVector<int64_t> ValidationValues(ValidationCounters.size(), 0);
     Error PossibleBenchmarkError =
         createSubProcessAndRunBenchmark(CounterName, Value,
-			                ValidationCounters, ValidationValues);
+			                ValidationCounters, ValidationCounterValues);
 
     if (PossibleBenchmarkError)
       return std::move(PossibleBenchmarkError);
