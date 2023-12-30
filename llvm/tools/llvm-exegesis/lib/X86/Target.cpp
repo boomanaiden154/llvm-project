@@ -681,6 +681,7 @@ public:
 
   Expected<std::unique_ptr<pfm::Counter>>
   createCounter(StringRef CounterName, const LLVMState &State,
+		ArrayRef<std::string> ValidationCounterNames,
                 const pid_t ProcessID) const override {
     // If LbrSamplingPeriod was provided, then ignore the
     // CounterName because we only have one for LBR.
@@ -698,7 +699,8 @@ public:
           llvm::errc::invalid_argument);
 #endif
     }
-    return ExegesisTarget::createCounter(CounterName, State, ProcessID);
+    return ExegesisTarget::createCounter(CounterName, State, ValidationCounterNames,
+		    ProcessID);
   }
 
   enum ArgumentRegisters { CodeSize = X86::R12, AuxiliaryMemoryFD = X86::R13 };

@@ -22,8 +22,10 @@ LatencyBenchmarkRunner::LatencyBenchmarkRunner(
     const LLVMState &State, Benchmark::ModeE Mode,
     BenchmarkPhaseSelectorE BenchmarkPhaseSelector,
     Benchmark::ResultAggregationModeE ResultAgg, ExecutionModeE ExecutionMode,
-    unsigned BenchmarkRepeatCount)
-    : BenchmarkRunner(State, Mode, BenchmarkPhaseSelector, ExecutionMode) {
+    unsigned BenchmarkRepeatCount,
+    ArrayRef<std::string> ValCounters)
+    : BenchmarkRunner(State, Mode, BenchmarkPhaseSelector, ExecutionMode),
+      ValidationCounters(ValCounters) {
   assert((Mode == Benchmark::Latency || Mode == Benchmark::InverseThroughput) &&
          "invalid mode");
   ResultAggMode = ResultAgg;
@@ -72,11 +74,19 @@ Expected<std::vector<BenchmarkMeasure>> LatencyBenchmarkRunner::runMeasurements(
   // ResultAggMode.
   llvm::SmallVector<int64_t, 4> AccumulatedValues;
   double MinVariance = std::numeric_limits<double>::infinity();
-  const char *CounterName = State.getPfmCounters().CycleCounter;
+  const PfmCountersInfo &PCI = State.getPfmCounters();
+  const char *CounterName = PCI.CycleCounter;
+  SmallVector<std::string> ValCountersToRun;
+  for (size_t I = 0; I < PCI.NumValidationCounters; ++I) {
+    for (size_t J = 0; J < ValidationCounters.size(); ++J) {
+      if (PCI.ValidationCounters[I].EventName == ValidationCounters[J])
+        ValCountersToRun.push_back(PCI.ValidationCounters[I].Counter);
+    }
+  }
   // Values count for each run.
   int ValuesCount = 0;
   for (size_t I = 0; I < NumMeasurements; ++I) {
-    auto ExpectedCounterValues = Executor.runAndSample(CounterName);
+    auto ExpectedCounterValues = Executor.runAndSample(CounterName, ValCountersToRun);
     if (!ExpectedCounterValues)
       return ExpectedCounterValues.takeError();
     ValuesCount = ExpectedCounterValues.get().size();

@@ -70,7 +70,8 @@ void BenchmarkRunner::FunctionExecutor::accumulateCounterValues(
 }
 
 Expected<llvm::SmallVector<int64_t, 4>>
-BenchmarkRunner::FunctionExecutor::runAndSample(const char *Counters) const {
+BenchmarkRunner::FunctionExecutor::runAndSample(const char *Counters,
+		                                ArrayRef<std::string> ValidationCounters) const {
   // We sum counts when there are several counters for a single ProcRes
   // (e.g. P23 on SandyBridge).
   llvm::SmallVector<int64_t, 4> CounterValues;
@@ -79,7 +80,7 @@ BenchmarkRunner::FunctionExecutor::runAndSample(const char *Counters) const {
   for (auto &CounterName : CounterNames) {
     CounterName = CounterName.trim();
     Expected<SmallVector<int64_t, 4>> ValueOrError =
-        runWithCounter(CounterName);
+        runWithCounter(CounterName, ValidationCounters);
     if (!ValueOrError)
       return ValueOrError.takeError();
     accumulateCounterValues(ValueOrError.get(), &CounterValues);
@@ -120,10 +121,10 @@ private:
   }
 
   Expected<llvm::SmallVector<int64_t, 4>>
-  runWithCounter(StringRef CounterName) const override {
+  runWithCounter(StringRef CounterName, ArrayRef<std::string> ValidationCounters) const override {
     const ExegesisTarget &ET = State.getExegesisTarget();
     char *const ScratchPtr = Scratch->ptr();
-    auto CounterOrError = ET.createCounter(CounterName, State);
+    auto CounterOrError = ET.createCounter(CounterName, State, ValidationCounters);
 
     if (!CounterOrError)
       return CounterOrError.takeError();
@@ -265,7 +266,9 @@ private:
   }
 
   Error createSubProcessAndRunBenchmark(
-      StringRef CounterName, SmallVectorImpl<int64_t> &CounterValues) const {
+      StringRef CounterName, SmallVectorImpl<int64_t> &CounterValues,
+      ArrayRef<std::string> ValidationCounterNames,
+      SmallVectorImpl<int64_t> &ValidationCounterValues) const {
     int PipeFiles[2];
     int PipeSuccessOrErr = socketpair(AF_UNIX, SOCK_DGRAM, 0, PipeFiles);
     if (PipeSuccessOrErr != 0) {
@@ -306,7 +309,8 @@ private:
 
     const ExegesisTarget &ET = State.getExegesisTarget();
     auto CounterOrError =
-        ET.createCounter(CounterName, State, ParentOrChildPID);
+        ET.createCounter(CounterName, State, ValidationCounterNames,
+			 ParentOrChildPID);
 
     if (!CounterOrError)
       return CounterOrError.takeError();
@@ -456,14 +460,15 @@ private:
   }
 
   Expected<llvm::SmallVector<int64_t, 4>>
-  runWithCounter(StringRef CounterName) const override {
+  runWithCounter(StringRef CounterName, ArrayRef<std::string> ValidationCounters) const override {
     SmallVector<int64_t, 4> Value(1, 0);
+    SmallVector<int64_t> ValidationValues(ValidationCounters.size(), 0);
     Error PossibleBenchmarkError =
-        createSubProcessAndRunBenchmark(CounterName, Value);
+        createSubProcessAndRunBenchmark(CounterName, Value,
+			                ValidationCounters, ValidationValues);
 
-    if (PossibleBenchmarkError) {
+    if (PossibleBenchmarkError)
       return std::move(PossibleBenchmarkError);
-    }
 
     return Value;
   }

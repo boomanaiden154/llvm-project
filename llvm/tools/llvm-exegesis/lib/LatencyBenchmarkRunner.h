@@ -25,7 +25,8 @@ public:
                          BenchmarkPhaseSelectorE BenchmarkPhaseSelector,
                          Benchmark::ResultAggregationModeE ResultAggMode,
                          ExecutionModeE ExecutionMode,
-                         unsigned BenchmarkRepeatCount);
+                         unsigned BenchmarkRepeatCount,
+                         ArrayRef<std::string> ValCounters);
   ~LatencyBenchmarkRunner() override;
 
 private:
@@ -34,6 +35,7 @@ private:
 
   Benchmark::ResultAggregationModeE ResultAggMode;
   unsigned NumMeasurements;
+  SmallVector<std::string> ValidationCounters;
 };
 } // namespace exegesis
 } // namespace llvm

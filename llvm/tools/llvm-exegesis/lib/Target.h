@@ -90,6 +90,7 @@ public:
   // Targets can use this to create target-specific perf counters.
   virtual Expected<std::unique_ptr<pfm::Counter>>
   createCounter(StringRef CounterName, const LLVMState &State,
+                ArrayRef<std::string> ValidationCounterNames,
                 const pid_t ProcessID = 0) const;
 
   // Targets can use this to add target-specific passes in assembleToStream();
@@ -274,6 +275,7 @@ public:
       BenchmarkPhaseSelectorE BenchmarkPhaseSelector,
       BenchmarkRunner::ExecutionModeE ExecutionMode,
       unsigned BenchmarkRepeatCount,
+      ArrayRef<std::string> ValidationCounters,
       Benchmark::ResultAggregationModeE ResultAggMode = Benchmark::Min) const;
 
   // Returns the ExegesisTarget for the given triple or nullptr if the target
@@ -318,7 +320,8 @@ private:
       BenchmarkPhaseSelectorE BenchmarkPhaseSelector,
       Benchmark::ResultAggregationModeE ResultAggMode,
       BenchmarkRunner::ExecutionModeE ExecutionMode,
-      unsigned BenchmarkRepeatCount) const;
+      unsigned BenchmarkRepeatCount,
+      ArrayRef<std::string> ValidationCounters) const;
   std::unique_ptr<BenchmarkRunner> virtual createUopsBenchmarkRunner(
       const LLVMState &State, BenchmarkPhaseSelectorE BenchmarkPhaseSelector,
       Benchmark::ResultAggregationModeE ResultAggMode,
