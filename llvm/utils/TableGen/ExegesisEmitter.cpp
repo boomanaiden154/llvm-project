@@ -47,6 +47,7 @@ private:
 
   void emitPfmCountersInfo(const Record &Def,
                            unsigned &IssueCountersTableOffset,
+                           unsigned &ValidationCountersTableOffset,
                            raw_ostream &OS) const;
 
   void emitPfmCountersLookupTable(raw_ostream &OS) const;
@@ -81,6 +82,17 @@ collectPfmCounters(const RecordKeeper &Records) {
                         "duplicate ResourceName " + ResourceName);
       AddPfmCounterName(IssueCounter);
     }
+    for (const Record *ValidationCounter :
+         Def->getValueAsListOfDefs("ValidationCounters")) {
+      const llvm::StringRef EventName =
+          ValidationCounter->getValueAsString("EventName");
+      if (EventName.empty())
+        PrintFatalError(ValidationCounter->getLoc(), "invalid empty EventName");
+      if (!Seen.insert(EventName).second)
+        PrintFatalError(ValidationCounter->getLoc(),
+                        "duplicate EventName " + EventName);
+      AddPfmCounterName(ValidationCounter);
+    }
     AddPfmCounterName(Def->getValueAsDef("CycleCounter"));
     AddPfmCounterName(Def->getValueAsDef("UopsCounter"));
   }
@@ -100,15 +112,17 @@ ExegesisEmitter::ExegesisEmitter(RecordKeeper &RK)
   Target = std::string(Targets[0]->getName());
 }
 
-void ExegesisEmitter::emitPfmCountersInfo(const Record &Def,
-                                          unsigned &IssueCountersTableOffset,
-                                          raw_ostream &OS) const {
+void ExegesisEmitter::emitPfmCountersInfo(
+    const Record &Def, unsigned &IssueCountersTableOffset,
+    unsigned &ValidationCountersTableOffset, raw_ostream &OS) const {
   const auto CycleCounter =
       Def.getValueAsDef("CycleCounter")->getValueAsString("Counter");
   const auto UopsCounter =
       Def.getValueAsDef("UopsCounter")->getValueAsString("Counter");
   const size_t NumIssueCounters =
       Def.getValueAsListOfDefs("IssueCounters").size();
+  const size_t NumValidationCounters =
+      Def.getValueAsListOfDefs("ValidationCounters").size();
 
   OS << "\nstatic const PfmCountersInfo " << Target << Def.getName()
      << " = {\n";
@@ -129,13 +143,22 @@ void ExegesisEmitter::emitPfmCountersInfo(const Record &Def,
 
   // Issue Counters
   if (NumIssueCounters == 0)
-    OS << "  nullptr,  // No issue counters.\n  0\n";
+    OS << "  nullptr,  // No issue counters.\n  0,\n";
   else
     OS << "  " << Target << "PfmIssueCounters + " << IssueCountersTableOffset
-       << ", " << NumIssueCounters << " // Issue counters.\n";
+       << ", " << NumIssueCounters << ", // Issue counters.\n";
+  IssueCountersTableOffset += NumIssueCounters;
+
+  // Validation Counters
+  if (NumValidationCounters == 0)
+    OS << "  nullptr,  // No validation counters.\n  0\n";
+  else
+    OS << "  " << Target << "PfmValidationCounters + "
+       << ValidationCountersTableOffset << ", " << NumValidationCounters
+       << " // Validation counters.\n";
+  ValidationCountersTableOffset += NumValidationCounters;
 
   OS << "};\n";
-  IssueCountersTableOffset += NumIssueCounters;
 }
 
 void ExegesisEmitter::emitPfmCounters(raw_ostream &OS) const {
@@ -166,10 +189,30 @@ void ExegesisEmitter::emitPfmCounters(raw_ostream &OS) const {
     OS << "};\n";
   }
 
+  // Emit the ValidationCounters table
+  const bool HasAtLeastOnePfmValidationCounter =
+      llvm::any_of(PfmCounterDefs, [](const Record *Def) {
+        return !Def->getValueAsListOfDefs("ValidationCounters").empty();
+      });
+  if (HasAtLeastOnePfmValidationCounter) {
+    OS << "static const PfmCountersInfo::ValidationCounter " << Target
+       << "PfmValidationCounters[] = {\n";
+    for (const Record *Def : PfmCounterDefs) {
+      for (const Record *VCDef :
+           Def->getValueAsListOfDefs("ValidationCounters"))
+        OS << "  { " << Target << "PfmCounterNames["
+           << getPfmCounterId(VCDef->getValueAsString("Counter")) << "], \""
+           << VCDef->getValueAsString("EventName") << "\"},\n";
+    }
+    OS << "};\n";
+  }
+
   // Now generate the PfmCountersInfo.
   unsigned IssueCountersTableOffset = 0;
+  unsigned ValidationCountersTableOffset = 0;
   for (const Record *Def : PfmCounterDefs)
-    emitPfmCountersInfo(*Def, IssueCountersTableOffset, OS);
+    emitPfmCountersInfo(*Def, IssueCountersTableOffset,
+                        ValidationCountersTableOffset, OS);
 
   OS << "\n";
 } // namespace

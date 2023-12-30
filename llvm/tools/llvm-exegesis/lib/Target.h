@@ -59,6 +59,17 @@ struct PfmCountersInfo {
   const IssueCounter *IssueCounters;
   unsigned NumIssueCounters;
 
+  // A ValidationCounter specifies an event and a counter than can be used
+  // to validate invariants of the measurement process.
+  struct ValidationCounter {
+    const char *Counter;
+    // The name of the event that this counter measures.
+    const char *EventName;
+  };
+  // An optional list of ValidationCounters.
+  const ValidationCounter *ValidationCounters;
+  unsigned NumValidationCounters;
+
   static const PfmCountersInfo Default;
   static const PfmCountersInfo Dummy;
 };

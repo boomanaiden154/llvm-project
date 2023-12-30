@@ -28,6 +28,15 @@ class PfmIssueCounter<string resource_name, string counter>
   string ResourceName = resource_name;
 }
 
+// Validation counters that can be used to ensure a snippet executes fllowing
+// certain assumptions.
+class PfmValidationCounter<string event_name, string counter>
+    : PfmCounter<counter> {
+  // The name of the event that the validation counter is checking. For
+  // example, an event might be something like "l1dcacheloadmisses".
+  string EventName = event_name;
+}
+
 def NoPfmCounter : PfmCounter <""> {}
 
 // Set of PfmCounters for measuring sched model characteristics.
@@ -36,6 +45,9 @@ class ProcPfmCounters {
   PfmCounter CycleCounter = NoPfmCounter;
   // Processors can define how to measure uops by defining a UopsCounter.
   PfmCounter UopsCounter = NoPfmCounter;
+  // Processors can define the mappings for validation counters for various
+  // events that might impact the execution of a snippet.
+  list<PfmValidationCounter> ValidationCounters = [];
   // Processors can define how to measure issued uops by defining IssueCounters.
   list<PfmIssueCounter> IssueCounters = [];
 }

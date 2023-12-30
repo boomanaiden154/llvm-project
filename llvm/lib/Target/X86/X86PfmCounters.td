@@ -117,6 +117,9 @@ def HaswellPfmCounters : ProcPfmCounters {
     PfmIssueCounter<"HWPort6", "uops_executed_port:port_6">,
     PfmIssueCounter<"HWPort7", "uops_executed_port:port_7">
   ];
+  let ValidationCounters = [
+    PfmValidationCounter<"l1dcacheloadmiss", "L1_MISS">
+  ];
 }
 def : PfmCountersBinding<"haswell", HaswellPfmCounters>;
 
@@ -132,6 +135,9 @@ def BroadwellPfmCounters : ProcPfmCounters {
     PfmIssueCounter<"BWPort5", "uops_executed_port:port_5">,
     PfmIssueCounter<"BWPort6", "uops_executed_port:port_6">,
     PfmIssueCounter<"BWPort7", "uops_executed_port:port_7">
+  ];
+  let ValidationCounters = [
+    PfmValidationCounter<"l1dcacheloadmiss", "L1_MISS">
   ];
 }
 def : PfmCountersBinding<"broadwell", BroadwellPfmCounters>;
@@ -274,6 +280,9 @@ def ZnVer2PfmCounters : ProcPfmCounters {
   let IssueCounters = [
     PfmIssueCounter<"Zn2AGU", "ls_dispatch:ld_st_dispatch + ls_dispatch:ld_dispatch + ls_dispatch:store_dispatch">,
     PfmIssueCounter<"Zn2Divider", "div_op_count">
+  ];
+  let ValidationCounters = [
+    PfmValidationCounter<"l1dcacheloadmiss", "L1-DCACHE-LOAD-MISS">
   ];
 }
 def : PfmCountersBinding<"znver2", ZnVer2PfmCounters>;
