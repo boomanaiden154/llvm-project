@@ -344,8 +344,7 @@ static std::vector<unsigned> getOpcodesOrDie(const LLVMState &State) {
 
 // Generates code snippets for opcode `Opcode`.
 static Expected<std::vector<BenchmarkCode>>
-generateSnippets(const LLVMState &State, unsigned Opcode,
-                 const BitVector &ForbiddenRegs) {
+generateSnippets(const LLVMState &State, unsigned Opcode) {
   const Instruction &Instr = State.getIC().getInstr(Opcode);
   const MCInstrDesc &InstrDesc = Instr.Description;
   // Ignore instructions that we cannot run.
@@ -373,8 +372,7 @@ generateSnippets(const LLVMState &State, unsigned Opcode,
   for (const InstructionTemplate &Variant : InstructionVariants) {
     if (Benchmarks.size() >= MaxConfigsPerOpcode)
       break;
-    if (auto Err = Generator->generateConfigurations(Variant, Benchmarks,
-                                                     ForbiddenRegs))
+    if (auto Err = Generator->generateConfigurations(Variant, Benchmarks))
       return std::move(Err);
   }
   return Benchmarks;
@@ -518,10 +516,6 @@ void benchmarkMain() {
       Repetitors.emplace_back(SnippetRepetitor::Create(RepMode, State));
   }
 
-  BitVector AllReservedRegs;
-  for (const std::unique_ptr<const SnippetRepetitor> &Repetitor : Repetitors)
-    AllReservedRegs |= Repetitor->getReservedRegs();
-
   std::vector<BenchmarkCode> Configurations;
   if (!Opcodes.empty()) {
     for (const unsigned Opcode : Opcodes) {
@@ -534,7 +528,7 @@ void benchmarkMain() {
         continue;
       }
 
-      auto ConfigsForInstr = generateSnippets(State, Opcode, AllReservedRegs);
+      auto ConfigsForInstr = generateSnippets(State, Opcode);
       if (!ConfigsForInstr) {
         logAllUnhandledErrors(
             ConfigsForInstr.takeError(), errs(),

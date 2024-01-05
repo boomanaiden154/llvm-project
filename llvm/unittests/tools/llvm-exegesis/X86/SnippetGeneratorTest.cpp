@@ -239,7 +239,7 @@ TEST_F(X86SerialSnippetGeneratorTest, VCVTUSI642SDZrrb_Int) {
   const Instruction &Instr = State.getIC().getInstr(Opcode);
   std::vector<BenchmarkCode> Configs;
   auto Error = Generator.generateConfigurations(
-      &Instr, Configs, State.getRATC().emptyRegisters());
+      &Instr, Configs);
   ASSERT_FALSE(Error);
   ASSERT_THAT(Configs, SizeIs(1));
   const BenchmarkCode &BC = Configs[0];
@@ -421,8 +421,7 @@ TEST_F(X86ParallelSnippetGeneratorTest, MOV16ms) {
   const unsigned Opcode = X86::MOV16ms;
   const Instruction &Instr = State.getIC().getInstr(Opcode);
   std::vector<BenchmarkCode> Benchmarks;
-  auto Err = Generator.generateConfigurations(&Instr, Benchmarks,
-                                              State.getRATC().emptyRegisters());
+  auto Err = Generator.generateConfigurations(&Instr, Benchmarks);
   EXPECT_TRUE((bool)Err);
   EXPECT_THAT(toString(std::move(Err)),
               testing::HasSubstr("no available registers"));
@@ -500,7 +499,7 @@ TEST_F(X86FakeSnippetGeneratorTest, MemoryUse_Movsb) {
   const Instruction &Instr = State.getIC().getInstr(Opcode);
   std::vector<BenchmarkCode> Benchmarks;
   auto Error = Generator.generateConfigurations(
-      &Instr, Benchmarks, State.getRATC().emptyRegisters());
+      &Instr, Benchmarks);
   EXPECT_TRUE((bool)Error);
   consumeError(std::move(Error));
 }

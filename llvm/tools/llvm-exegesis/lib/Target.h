@@ -197,12 +197,15 @@ public:
   }
 
   // Returns a counter usable as a loop counter.
-  virtual unsigned getLoopCounterRegister(const Triple &) const { return 0; }
+  virtual unsigned getLoopCounterRegister(const Triple &,
+		  std::unordered_map<unsigned, bool> &UsedRegisters,
+		  const LLVMState &State) const { return 0; }
 
   // Adds the code to decrement the loop counter and
   virtual void decrementLoopCounterAndJump(MachineBasicBlock &MBB,
                                            MachineBasicBlock &TargetMBB,
-                                           const MCInstrInfo &MII) const {
+                                           const MCInstrInfo &MII,
+					   unsigned LoopCounterReg) const {
     llvm_unreachable("decrementLoopCounterAndBranch() requires "
                      "getLoopCounterRegister() > 0");
   }

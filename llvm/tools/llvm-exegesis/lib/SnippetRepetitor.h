@@ -33,9 +33,6 @@ public:
 
   virtual ~SnippetRepetitor();
 
-  // Returns the set of registers that are reserved by the repetitor.
-  virtual BitVector getReservedRegs() const = 0;
-
   // Returns a functor that repeats `Instructions` so that the function executes
   // at least `MinInstructions` instructions.
   virtual FillFunction Repeat(ArrayRef<MCInst> Instructions,

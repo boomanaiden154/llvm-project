@@ -38,25 +38,29 @@ public:
       Entry.addReturn(State.getExegesisTarget(), CleanupMemory);
     };
   }
-
-  BitVector getReservedRegs() const override {
-    // We're using no additional registers.
-    return State.getRATC().emptyRegisters();
-  }
 };
+
 
 class LoopSnippetRepetitor : public SnippetRepetitor {
 public:
   explicit LoopSnippetRepetitor(const LLVMState &State)
-      : SnippetRepetitor(State),
-        LoopCounter(State.getExegesisTarget().getLoopCounterRegister(
-            State.getTargetMachine().getTargetTriple())) {}
+      : SnippetRepetitor(State) {}
 
   // Loop over the snippet ceil(MinInstructions / Instructions.Size()) times.
   FillFunction Repeat(ArrayRef<MCInst> Instructions, unsigned MinInstructions,
                       unsigned LoopBodySize,
                       bool CleanupMemory) const override {
-    return [this, Instructions, MinInstructions, LoopBodySize,
+    std::unordered_map<unsigned, bool> UsedRegisters;
+    for (const MCInst &CurrentInst : Instructions) {
+      for (unsigned I = 0; I < CurrentInst.getNumOperands(); ++I) {
+        if (CurrentInst.getOperand(I).isReg())
+          UsedRegisters[CurrentInst.getOperand(I).getReg()] = true;
+      }
+    }
+    Register LoopCounter = State.getExegesisTarget().getLoopCounterRegister(
+        State.getTargetMachine().getTargetTriple(), UsedRegisters, State);
+
+    return [this, LoopCounter, Instructions, MinInstructions, LoopBodySize,
             CleanupMemory](FunctionFiller &Filler) {
       const auto &ET = State.getExegesisTarget();
       auto Entry = Filler.getEntry();
@@ -108,22 +112,14 @@ public:
         Loop.addInstructions(Instructions);
       }
       ET.decrementLoopCounterAndJump(*Loop.MBB, *Loop.MBB,
-                                     State.getInstrInfo());
+                                     State.getInstrInfo(),
+                                     LoopCounter);
 
       // Set up the exit basic block.
       Loop.MBB->addSuccessor(Exit.MBB, BranchProbability::getZero());
       Exit.addReturn(State.getExegesisTarget(), CleanupMemory);
     };
   }
-
-  BitVector getReservedRegs() const override {
-    // We're using a single loop counter, but we have to reserve all aliasing
-    // registers.
-    return State.getRATC().getRegister(LoopCounter).aliasedBits();
-  }
-
-private:
-  const unsigned LoopCounter;
 };
 
 } // namespace

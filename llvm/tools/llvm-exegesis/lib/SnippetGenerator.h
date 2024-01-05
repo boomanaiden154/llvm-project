@@ -63,8 +63,7 @@ public:
 
   // Calls generateCodeTemplate and expands it into one or more BenchmarkCode.
   Error generateConfigurations(const InstructionTemplate &Variant,
-                               std::vector<BenchmarkCode> &Benchmarks,
-                               const BitVector &ExtraForbiddenRegs) const;
+                               std::vector<BenchmarkCode> &Benchmarks) const;
 
   // Given a snippet, computes which registers the setup code needs to define.
   std::vector<RegisterValue> computeRegisterInitialValues(

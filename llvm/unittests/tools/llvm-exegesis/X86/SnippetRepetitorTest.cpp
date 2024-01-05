@@ -84,11 +84,12 @@ TEST_F(X86SnippetRepetitorTest, Loop) {
                           HasOpcode(X86::NOOP), HasOpcode(X86::NOOP),
                           HasOpcode(X86::NOOP), HasOpcode(X86::ADD64ri8),
                           HasOpcode(X86::JCC_1)));
+  std::unordered_map<unsigned, bool> UsedRegisters = {};
   EXPECT_THAT(LoopBlock.liveins(),
               UnorderedElementsAre(
                   LiveReg(X86::EAX),
                   LiveReg(State.getExegesisTarget().getLoopCounterRegister(
-                      State.getTargetMachine().getTargetTriple()))));
+                      State.getTargetMachine().getTargetTriple(), UsedRegisters, State))));
   EXPECT_THAT(MF->getBlockNumbered(2)->instrs(),
               ElementsAre(HasOpcode(X86::RET64)));
 }
