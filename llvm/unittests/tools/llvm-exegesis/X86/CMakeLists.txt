@@ -33,5 +33,6 @@ endif()
 
 add_llvm_exegesis_unittest_link_libraries(
   LLVMExegesisX86
+  LLVMTestingSupport
   ${libs}
   )

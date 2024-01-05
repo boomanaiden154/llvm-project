@@ -22,7 +22,7 @@ public:
 
   // Repeats the snippet until there are at least MinInstructions in the
   // resulting code.
-  FillFunction Repeat(ArrayRef<MCInst> Instructions, unsigned MinInstructions,
+  Expected<FillFunction> Repeat(ArrayRef<MCInst> Instructions, unsigned MinInstructions,
                       unsigned LoopBodySize,
                       bool CleanupMemory) const override {
     return [this, Instructions, MinInstructions,
@@ -47,7 +47,7 @@ public:
       : SnippetRepetitor(State) {}
 
   // Loop over the snippet ceil(MinInstructions / Instructions.Size()) times.
-  FillFunction Repeat(ArrayRef<MCInst> Instructions, unsigned MinInstructions,
+  Expected<FillFunction> Repeat(ArrayRef<MCInst> Instructions, unsigned MinInstructions,
                       unsigned LoopBodySize,
                       bool CleanupMemory) const override {
     std::unordered_map<unsigned, bool> UsedRegisters;
@@ -57,8 +57,13 @@ public:
           UsedRegisters[CurrentInst.getOperand(I).getReg()] = true;
       }
     }
-    Register LoopCounter = State.getExegesisTarget().getLoopCounterRegister(
+    Expected<unsigned> LoopCounterOrErr = State.getExegesisTarget().getLoopCounterRegister(
         State.getTargetMachine().getTargetTriple(), UsedRegisters, State);
+
+    if (!LoopCounterOrErr)
+      return LoopCounterOrErr.takeError();
+
+    unsigned LoopCounter = *LoopCounterOrErr;
 
     return [this, LoopCounter, Instructions, MinInstructions, LoopBodySize,
             CleanupMemory](FunctionFiller &Filler) {

@@ -42,9 +42,10 @@ protected:
     const auto Repetitor = SnippetRepetitor::Create(RepetitionMode, State);
     const std::vector<MCInst> Instructions = {MCInstBuilder(X86::NOOP)};
     FunctionFiller Sink(*MF, {X86::EAX});
-    const auto Fill =
+    Expected<FillFunction> FillOrErr =
         Repetitor->Repeat(Instructions, kMinInstructions, kLoopBodySize, false);
-    Fill(Sink);
+    ASSERT_THAT_EXPECTED(FillOrErr, Succeeded());
+    (*FillOrErr)(Sink);
   }
 
   static constexpr const unsigned kMinInstructions = 3;
@@ -85,11 +86,13 @@ TEST_F(X86SnippetRepetitorTest, Loop) {
                           HasOpcode(X86::NOOP), HasOpcode(X86::ADD64ri8),
                           HasOpcode(X86::JCC_1)));
   std::unordered_map<unsigned, bool> UsedRegisters = {};
+  Expected<unsigned> LoopRegisterOrErr = State.getExegesisTarget().getLoopCounterRegister(
+      State.getTargetMachine().getTargetTriple(), UsedRegisters, State);
+  ASSERT_THAT_EXPECTED(LoopRegisterOrErr, Succeeded());
   EXPECT_THAT(LoopBlock.liveins(),
               UnorderedElementsAre(
                   LiveReg(X86::EAX),
-                  LiveReg(State.getExegesisTarget().getLoopCounterRegister(
-                      State.getTargetMachine().getTargetTriple(), UsedRegisters, State))));
+                  LiveReg(*LoopRegisterOrErr)));
   EXPECT_THAT(MF->getBlockNumbered(2)->instrs(),
               ElementsAre(HasOpcode(X86::RET64)));
 }

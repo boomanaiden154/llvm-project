@@ -708,7 +708,7 @@ private:
 
   unsigned getScratchMemoryRegister(const Triple &TT) const override;
 
-  unsigned getLoopCounterRegister(const Triple &,
+  Expected<unsigned> getLoopCounterRegister(const Triple &,
 		  std::unordered_map<unsigned, bool> &UsedRegisters,
 		  const LLVMState &State) const override;
 
@@ -856,7 +856,7 @@ unsigned ExegesisX86Target::getScratchMemoryRegister(const Triple &TT) const {
   return TT.isOSWindows() ? X86::RCX : X86::RDI;
 }
 
-unsigned ExegesisX86Target::getLoopCounterRegister(const Triple &TT,
+Expected<unsigned> ExegesisX86Target::getLoopCounterRegister(const Triple &TT,
 		std::unordered_map<unsigned, bool> &UsedRegisters,
 		const LLVMState &State) const {
   if (!TT.isArch64Bit()) {
@@ -864,7 +864,6 @@ unsigned ExegesisX86Target::getLoopCounterRegister(const Triple &TT,
   }
 
   const MCRegisterInfo &MRI = State.getRegInfo();
-  unsigned LoopRegister = 0;
 
   for (unsigned I = 0;
        I < MRI.getRegClass(llvm::X86::GR64_NOREX2RegClassID).getNumRegs(); ++I) {
@@ -875,10 +874,10 @@ unsigned ExegesisX86Target::getLoopCounterRegister(const Triple &TT,
     if (UsedRegisters.count(CurrentRegister) > 0)
       continue;
 
-    LoopRegister = CurrentRegister;
+    return CurrentRegister;
   }
 
-  return LoopRegister;
+  return make_error<Failure>("Failed to find a valid loop counter register");
 }
 
 Error ExegesisX86Target::randomizeTargetMCOperand(

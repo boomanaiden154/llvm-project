@@ -197,7 +197,7 @@ public:
   }
 
   // Returns a counter usable as a loop counter.
-  virtual unsigned getLoopCounterRegister(const Triple &,
+  virtual Expected<unsigned> getLoopCounterRegister(const Triple &,
 		  std::unordered_map<unsigned, bool> &UsedRegisters,
 		  const LLVMState &State) const { return 0; }
 

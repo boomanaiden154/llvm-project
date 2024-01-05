@@ -482,10 +482,15 @@ Expected<SmallString<0>> BenchmarkRunner::assembleSnippet(
   const std::vector<MCInst> &Instructions = BC.Key.Instructions;
   SmallString<0> Buffer;
   raw_svector_ostream OS(Buffer);
+  Expected<FillFunction> SnippetFillFunctionOrErr = Repetitor.Repeat(Instructions,
+      MinInstructions, LoopBodySize, GenerateMemoryInstructions);
+
+  if (!SnippetFillFunctionOrErr)
+    return SnippetFillFunctionOrErr.takeError();
+
   if (Error E = assembleToStream(
           State.getExegesisTarget(), State.createTargetMachine(), BC.LiveIns,
-          Repetitor.Repeat(Instructions, MinInstructions, LoopBodySize,
-                           GenerateMemoryInstructions),
+          *SnippetFillFunctionOrErr,
           OS, BC.Key, GenerateMemoryInstructions)) {
     return std::move(E);
   }
