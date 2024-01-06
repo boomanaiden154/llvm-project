@@ -53,9 +53,11 @@ namespace exegesis {
 
 BenchmarkRunner::BenchmarkRunner(const LLVMState &State, Benchmark::ModeE Mode,
                                  BenchmarkPhaseSelectorE BenchmarkPhaseSelector,
-                                 ExecutionModeE ExecutionMode)
+                                 ExecutionModeE ExecutionMode,
+                                 ArrayRef<ValidationEvent> ValCounters)
     : State(State), Mode(Mode), BenchmarkPhaseSelector(BenchmarkPhaseSelector),
-      ExecutionMode(ExecutionMode), Scratch(std::make_unique<ScratchSpace>()) {}
+      ExecutionMode(ExecutionMode), ValidationCounters(ValCounters),
+      Scratch(std::make_unique<ScratchSpace>()) {}
 
 BenchmarkRunner::~BenchmarkRunner() = default;
 
@@ -665,6 +667,30 @@ BenchmarkRunner::writeObjectFile(StringRef Buffer, StringRef FileName) const {
 }
 
 BenchmarkRunner::FunctionExecutor::~FunctionExecutor() {}
+
+static bool
+compareValidationCounters(const std::pair<ValidationEvent, const char *> &LHS,
+                          const ValidationEvent RHS) {
+  return std::get<0>(LHS) < RHS;
+}
+
+Error BenchmarkRunner::getValidationCountersToRun(
+    SmallVectorImpl<const char *> &ValCountersToRun) const {
+  const PfmCountersInfo &PCI = State.getPfmCounters();
+  ArrayRef<std::pair<ValidationEvent, const char *>> TargetValidationCounters(
+      PCI.ValidationEvents, PCI.NumValidationEvents);
+  for (const ValidationEvent ValEvent : ValidationCounters) {
+    auto ValCounterIt = lower_bound(TargetValidationCounters, ValEvent,
+                                    compareValidationCounters);
+    if (ValCounterIt == TargetValidationCounters.end() ||
+        ValCounterIt->first != ValEvent)
+      return make_error<Failure>("Cannot create validation counter");
+
+    ValCountersToRun.push_back(ValCounterIt->second);
+  }
+
+  return Error::success();
+}
 
 } // namespace exegesis
 } // namespace llvm
