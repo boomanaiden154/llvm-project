@@ -66,6 +66,12 @@ static int64_t findMean(const llvm::SmallVector<int64_t, 4> &Values) {
          static_cast<double>(Values.size());
 }
 
+static bool
+compareValidationCounters(const std::pair<ValidationEvent, const char *> &LHS,
+                          const ValidationEvent RHS) {
+  return std::get<0>(LHS) < RHS;
+}
+
 Expected<std::vector<BenchmarkMeasure>> LatencyBenchmarkRunner::runMeasurements(
     const FunctionExecutor &Executor) const {
   // Cycle measurements include some overhead from the kernel. Repeat the
@@ -78,11 +84,15 @@ Expected<std::vector<BenchmarkMeasure>> LatencyBenchmarkRunner::runMeasurements(
 
   SmallVector<const char *> ValCountersToRun;
   ValCountersToRun.reserve(ValidationCounters.size());
+  ArrayRef<std::pair<ValidationEvent, const char *>> TargetValidationCounters(
+      PCI.ValidationEvents, PCI.NumValidationEvents);
   for (const ValidationEvent ValEvent : ValidationCounters) {
-    auto ValCounterIt = PCI.ValidationCounters.find(ValEvent);
-    if (ValCounterIt == PCI.ValidationCounters.end())
+    auto ValCounterIt = lower_bound(TargetValidationCounters, ValEvent,
+                                    compareValidationCounters);
+    if (ValCounterIt == TargetValidationCounters.end())
       return make_error<Failure>("Cannot create validation counter");
 
+    assert(ValEvent == ValCounterIt->first);
     ValCountersToRun.push_back(ValCounterIt->second);
   }
 

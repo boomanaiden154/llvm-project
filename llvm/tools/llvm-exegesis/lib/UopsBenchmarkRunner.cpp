@@ -15,6 +15,12 @@ namespace exegesis {
 
 UopsBenchmarkRunner::~UopsBenchmarkRunner() = default;
 
+static bool
+compareValidationCounters(const std::pair<ValidationEvent, const char *> &LHS,
+                          const ValidationEvent RHS) {
+  return std::get<0>(LHS) < RHS;
+}
+
 Expected<std::vector<BenchmarkMeasure>>
 UopsBenchmarkRunner::runMeasurements(const FunctionExecutor &Executor) const {
   std::vector<BenchmarkMeasure> Result;
@@ -22,9 +28,12 @@ UopsBenchmarkRunner::runMeasurements(const FunctionExecutor &Executor) const {
 
   SmallVector<const char *> ValCountersToRun;
   ValCountersToRun.reserve(ValidationCounters.size());
+  ArrayRef<std::pair<ValidationEvent, const char *>> TargetValidationCounters(
+      PCI.ValidationEvents, PCI.NumValidationEvents);
   for (const ValidationEvent ValEvent : ValidationCounters) {
-    auto ValCounterIt = PCI.ValidationCounters.find(ValEvent);
-    if (ValCounterIt == PCI.ValidationCounters.end())
+    auto ValCounterIt = lower_bound(TargetValidationCounters, ValEvent,
+                                    compareValidationCounters);
+    if (ValCounterIt == TargetValidationCounters.end())
       return make_error<Failure>("Cannot create validation counter");
 
     ValCountersToRun.push_back(ValCounterIt->second);
