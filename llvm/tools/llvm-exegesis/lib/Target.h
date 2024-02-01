@@ -184,6 +184,11 @@ public:
                        "current architecture");
   };
 
+  // Adds load instructions to load an entire memory value
+  virtual std::vector<MCInst> loadMemoryValue(intptr_t Address, size_t Size) const {
+    report_fatal_error("loadMemoryValue is not implemented");
+  };
+
   // Returns the register pointing to scratch memory, or 0 if this target
   // does not support memory operands. The benchmark function uses the
   // default calling convention.

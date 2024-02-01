@@ -90,6 +90,15 @@ static void generateMemoryMappings(const ExegesisTarget &ET,
   BBF.addInstructions(ET.setStackRegisterToAuxMem());
 }
 
+static void LoadMemoryValues(const ExegesisTarget &ET,
+		BasicBlockFiller &BBF,
+		const BenchmarkKey &Key) {
+  for (const MemoryMapping &MM : Key.MemoryMappings) {
+    size_t MemoryValueSize = Key.MemoryValues.at(MM.MemoryValueName).SizeBytes;
+    BBF.addInstructions(ET.loadMemoryValue(MM.Address, MemoryValueSize));
+  }
+}
+
 static bool
 setStackPointerRegister(const ExegesisTarget &ET,
                         const MCSubtargetInfo *const MSI, BasicBlockFiller &BBF,
@@ -320,8 +329,10 @@ Error assembleToStream(const ExegesisTarget &ET,
                                       .getTargetLowering()
                                       ->getStackPointerRegisterToSaveRestore();
 
-  if (GenerateMemoryInstructions)
+  if (GenerateMemoryInstructions) {
     generateMemoryMappings(ET, Entry, Key);
+    LoadMemoryValues(ET, Entry, Key);
+  }
 
   BasicBlockFiller BenchmarkStartBlock = Entry;
 

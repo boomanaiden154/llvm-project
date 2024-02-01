@@ -752,6 +752,8 @@ private:
   std::vector<unsigned> getArgumentRegisters() const override;
 
   std::vector<unsigned> getRegistersNeedSaving() const override;
+
+  std::vector<MCInst> loadMemoryValue(intptr_t Address, size_t Size) const override;
 #endif // __linux__
 
   ArrayRef<unsigned> getUnavailableRegisters() const override {
@@ -1267,6 +1269,29 @@ std::vector<unsigned> ExegesisX86Target::getArgumentRegisters() const {
 
 std::vector<unsigned> ExegesisX86Target::getRegistersNeedSaving() const {
   return {X86::RAX, X86::RDI, X86::RSI, X86::RCX, X86::R11};
+}
+
+std::vector<MCInst> ExegesisX86Target::loadMemoryValue(intptr_t Address, size_t Size) const {
+  // Size is in bytes
+  std::vector<MCInst> LoadMemoryValueCode;
+  assert(Size % 8 == 0 && "Expected value size to be a multiple of 8 bytes.");
+  LoadMemoryValueCode.push_back(loadImmediate(X86::RCX, 64, APInt(64, static_cast<uint64_t>(Address))));
+  int CurrentValue = 0;
+  while (CurrentValue < Size) {
+    LoadMemoryValueCode.push_back(MCInstBuilder(X86::MOV64rm)
+        .addReg(X86::RDX)
+        .addReg(X86::RCX)
+        .addImm(1)
+        .addReg(0)
+        .addImm(0)
+        .addReg(0));
+    LoadMemoryValueCode.push_back(MCInstBuilder(X86::ADD64ri32)
+        .addReg(X86::RCX)
+        .addReg(X86::RCX)
+        .addImm(8));
+    CurrentValue += 8;
+  }
+  return LoadMemoryValueCode;
 }
 
 #endif // __linux__

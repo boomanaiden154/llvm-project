@@ -297,10 +297,6 @@ struct MappingContextTraits<exegesis::Benchmark, YamlContext> {
     Io.mapRequired("measurements", Obj.Measurements);
     Io.mapRequired("error", Obj.Error);
     Io.mapOptional("info", Obj.Info);
-    // AssembledSnippet
-    MappingNormalization<NormalizedBinary, std::vector<uint8_t>> BinaryString(
-        Io, Obj.AssembledSnippet);
-    Io.mapOptional("assembled_snippet", BinaryString->Binary);
   }
 };
 
