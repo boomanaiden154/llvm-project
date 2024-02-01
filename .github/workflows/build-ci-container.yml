@@ -6,8 +6,6 @@ permissions:
 
 on:
   push:
-    branches:
-      - main
     paths:
       - .github/workflows/build-ci-container.yml
       - '.github/workflows/containers/github-action-ci/**'
@@ -58,3 +56,14 @@ jobs:
           podman login -u ${{ github.actor }} -p $GITHUB_TOKEN ghcr.io
           podman push ${{ steps.vars.outputs.container-name-tag }}
           podman push ${{ steps.vars.outputs.container-name }}:latest
+  build-ci-container-windows:
+    runs-on: windows-2019
+    permissions:
+      packages: write
+    steps:
+      - name: Checkout llvm
+        uses: actions/checkout@v4
+      - name: Build container
+        working-directory: ./.github/workflows/containers/github-action-ci-windows/
+        run: |
+          docker build -t testing .
