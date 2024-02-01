@@ -33,8 +33,8 @@ RUN C:\TEMP\vs_buildtools.exe --quiet --wait --norestart --nocache `
 # Register DIA dll (Debug Interface Access) so it can be used to symbolize 
 # the stack traces. Register dll for 32 and 64 bit.
 # see https://developercommunity.visualstudio.com/content/problem/290674/msdia140dll-is-not-registered-on-vs2017-hosts.html
-RUN regsvr32 /S "C:\BuildTools\DIA SDK\bin\amd64\msdia140.dll" & `
-    regsvr32 /S "C:\BuildTools\DIA SDK\bin\msdia140.dll"
+#RUN regsvr32 /S "C:\BuildTools\DIA SDK\bin\amd64\msdia140.dll" & `
+#    regsvr32 /S "C:\BuildTools\DIA SDK\bin\msdia140.dll"
 
 # install chocolately as package manager
 RUN powershell -NoProfile -InputFormat None -Command `
@@ -52,8 +52,6 @@ RUN choco install -y python2 python3
 RUN choco install -y sccache
 # Install psutils for python3 for lit
 RUN pip3 install psutil
-# Install buildbot using python2
-RUN pip2 install --trusted-host pythonhosted.org buildbot-slave==0.8.11 pywin32
 
 # configure Python encoding
 ENV PYTHONIOENCODING=UTF-8
