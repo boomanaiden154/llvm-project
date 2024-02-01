@@ -8,13 +8,13 @@ on:
   push:
     paths:
       - .github/workflows/build-ci-container.yml
-      - '.github/workflows/containers/github-action-ci/**'
+      - '.github/workflows/containers/**'
   pull_request:
     branches:
       - main
     paths:
       - .github/workflows/build-ci-container.yml
-      - '.github/workflows/containers/github-action-ci/**'
+      - '.github/workflows/containers/**'
 
 jobs:
   build-ci-container:
