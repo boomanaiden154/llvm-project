@@ -10,6 +10,7 @@
 #include "Target.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 
 namespace llvm {
@@ -29,10 +30,10 @@ public:
             CleanupMemory](FunctionFiller &Filler, bool AddReturn,
                            BasicBlockFiller &Entry) -> BasicBlockFiller {
       if (!Instructions.empty()) {
-        // Add the whole snippet at least once.
-        Entry.addInstructions(Instructions);
-        for (unsigned I = Instructions.size(); I < MinInstructions; ++I) {
-          Entry.addInstruction(Instructions[I % Instructions.size()]);
+        const unsigned NumRepetitions =
+            divideCeil(MinInstructions, Instructions.size());
+        for (unsigned I = 0; I < NumRepetitions; ++I) {
+          Entry.addInstructions(Instructions);
         }
       }
       if (AddReturn)
@@ -75,6 +76,11 @@ public:
 
       auto Loop = Filler.addBasicBlock();
       auto Exit = Filler.addBasicBlock();
+
+      // Align the loop machine basic block to a target-specific boundary
+      // to promote optimal instruction fetch/predecoding conditions.
+      Loop.MBB->setAlignment(
+          Filler.MF.getSubtarget().getTargetLowering()->getPrefLoopAlignment());
 
       const unsigned LoopUnrollFactor =
           LoopBodySize <= Instructions.size()
@@ -141,8 +147,10 @@ SnippetRepetitor::Create(Benchmark::RepetitionModeE Mode,
                          const LLVMState &State) {
   switch (Mode) {
   case Benchmark::Duplicate:
+  case Benchmark::MiddleHalfDuplicate:
     return std::make_unique<DuplicateSnippetRepetitor>(State);
   case Benchmark::Loop:
+  case Benchmark::MiddleHalfLoop:
     return std::make_unique<LoopSnippetRepetitor>(State);
   case Benchmark::AggregateMin:
     break;
