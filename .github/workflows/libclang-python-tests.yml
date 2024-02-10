@@ -25,8 +25,8 @@ on:
 concurrency:
   # Skip intermediate builds: always.
   # Cancel intermediate builds: only if it is a pull request build.
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+  group: ${{ github.workflow }}-${{ github.ref }}-libclang-python-bindings
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/', 'libclang-python-bindings') }}
 
 jobs:
   check-clang-python:
