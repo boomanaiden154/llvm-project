@@ -25,14 +25,13 @@ on:
 concurrency:
   # Skip intermediate builds: always.
   # Cancel intermediate builds: only if it is a pull request build.
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+  group: ${{ github.workflow }}-${{ github.ref }}-libclang-python-bindings
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/', 'libclang-python-bindings') }}
 
 jobs:
   check-clang-python:
     # Build libclang and then run the libclang Python binding's unit tests.
     name: Build and run Python unit tests
-    if: github.repository == 'llvm/llvm-project'
     strategy:
       fail-fast: false
       matrix:
