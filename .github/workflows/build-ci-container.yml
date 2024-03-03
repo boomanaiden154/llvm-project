@@ -85,12 +85,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: stage1-toolchain
+          path: /mnt
       - name: Check space
         run: df -h
 
       - name: Load stage1-toolchain
         run: |
-          podman load -i stage1-toolchain.tar
+          podman load -i /mnt/stage1-toolchain.tar
       - name: Check space
         run: df -h
 
