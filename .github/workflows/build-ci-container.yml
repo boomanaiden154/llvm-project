@@ -5,14 +5,10 @@ permissions:
 
 on:
   push:
-    branches:
-      - main
     paths:
       - .github/workflows/build-ci-container.yml
       - '.github/workflows/containers/github-action-ci/**'
   pull_request:
-    branches:
-      - main
     paths:
       - .github/workflows/build-ci-container.yml
       - '.github/workflows/containers/github-action-ci/**'

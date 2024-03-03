@@ -41,4 +41,5 @@ RUN cmake -B ./build -G Ninja ./llvm \
   -DCLANG_DEFAULT_LINKER="lld" \
   -DBOOTSTRAP_CLANG_PGO_TRAINING_DATA_SOURCE_DIR=/llvm-project-llvmorg-$LLVM_VERSION/llvm
 
-RUN ninja -C ./build stage2-instrumented-clang stage2-instrumented-lld
+#RUN ninja -C ./build stage2-instrumented-clang stage2-instrumented-lld
+ninja -C ./build FileCheck
