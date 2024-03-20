@@ -401,6 +401,13 @@ private:
                                  Twine(strerror(errno)));
     }
 
+    // Make sure to kill the subprocess if we detect that a signal has been
+    // thrown to ensure that it does not end up as a zombie process.
+    if (kill(ParentOrChildPID, SIGKILL) == -1)
+      return make_error<Failure>(
+          "Killing the child process after an error was thrown failed: " +
+          Twine(strerror(errno)));
+
     if (ChildSignalInfo.si_signo == SIGSEGV)
       return make_error<SnippetSegmentationFault>(
           reinterpret_cast<intptr_t>(ChildSignalInfo.si_addr));
