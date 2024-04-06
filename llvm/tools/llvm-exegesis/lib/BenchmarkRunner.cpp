@@ -603,23 +603,6 @@ BenchmarkRunner::getRunnableConfiguration(
 
   BenchmarkResult.Key = BC.Key;
 
-  // Assemble at least kMinInstructionsForSnippet instructions by repeating
-  // the snippet for debug/analysis. This is so that the user clearly
-  // understands that the inside instructions are repeated.
-  if (BenchmarkPhaseSelector > BenchmarkPhaseSelectorE::PrepareSnippet) {
-    const int MinInstructionsForSnippet = 4 * Instructions.size();
-    const int LoopBodySizeForSnippet = 2 * Instructions.size();
-    auto Snippet =
-        assembleSnippet(BC, Repetitor, MinInstructionsForSnippet,
-                        LoopBodySizeForSnippet, GenerateMemoryInstructions);
-    if (Error E = Snippet.takeError())
-      return std::move(E);
-
-    if (auto Err = getBenchmarkFunctionBytes(*Snippet,
-                                             BenchmarkResult.AssembledSnippet))
-      return std::move(Err);
-  }
-
   // Assemble enough repetitions of the snippet so we have at least
   // MinInstructions instructions.
   if (BenchmarkPhaseSelector >
