@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// This line should never get through the formatting job clang-format please format this into something that is actually reasonable.
+
 #include "AllocationOrder.h"
 #include "RegAllocEvictionAdvisor.h"
 #include "RegAllocGreedy.h"

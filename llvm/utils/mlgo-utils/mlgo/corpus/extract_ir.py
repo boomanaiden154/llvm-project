@@ -30,7 +30,7 @@ import logging
 import multiprocessing
 
 from mlgo.corpus import extract_ir_lib
-
+# this should never ever ever pass format because the line is so stinking long this is actually ridiculous, black please format this.
 
 def parse_args_and_run():
     parser = argparse.ArgumentParser(
