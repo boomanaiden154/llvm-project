@@ -157,6 +157,7 @@ enum ProcessorFeatures {
   FEATURE_ENQCMD = 48,
   FEATURE_F16C,
   FEATURE_FSGSBASE,
+  FEATURE_CRC32,
   // FEATURE_FXSAVE,
   // FEATURE_HLE,
   // FEATURE_IBT,
@@ -171,6 +172,7 @@ enum ProcessorFeatures {
   // FEATURE_OSXSAVE,
   FEATURE_PCONFIG = 63,
   FEATURE_PKU,
+  FEATURE_EVEX512,
   FEATURE_PREFETCHWT1,
   FEATURE_PRFCHW,
   FEATURE_PTWRITE,
@@ -804,8 +806,10 @@ static void getAvailableFeatures(unsigned ECX, unsigned EDX, unsigned MaxLeaf,
     setFeature(FEATURE_CMPXCHG16B);
   if ((ECX >> 19) & 1)
     setFeature(FEATURE_SSE4_1);
-  if ((ECX >> 20) & 1)
+  if ((ECX >> 20) & 1) {
     setFeature(FEATURE_SSE4_2);
+    setFeature(FEATURE_CRC32);
+  }
   if ((ECX >> 22) & 1)
     setFeature(FEATURE_MOVBE);
   if ((ECX >> 23) & 1)
@@ -858,8 +862,10 @@ static void getAvailableFeatures(unsigned ECX, unsigned EDX, unsigned MaxLeaf,
     setFeature(FEATURE_BMI2);
   if (HasLeaf7 && ((EBX >> 11) & 1))
     setFeature(FEATURE_RTM);
-  if (HasLeaf7 && ((EBX >> 16) & 1) && HasAVX512Save)
+  if (HasLeaf7 && ((EBX >> 16) & 1) && HasAVX512Save) {
     setFeature(FEATURE_AVX512F);
+    setFeature(FEATURE_EVEX512);
+  }
   if (HasLeaf7 && ((EBX >> 17) & 1) && HasAVX512Save)
     setFeature(FEATURE_AVX512DQ);
   if (HasLeaf7 && ((EBX >> 18) & 1))
@@ -868,6 +874,8 @@ static void getAvailableFeatures(unsigned ECX, unsigned EDX, unsigned MaxLeaf,
     setFeature(FEATURE_ADX);
   if (HasLeaf7 && ((EBX >> 21) & 1) && HasAVX512Save)
     setFeature(FEATURE_AVX512IFMA);
+  if (HasLeaf7 && ((EBX >> 23) & 1))
+    setFeature(FEATURE_CLFLUSHOPT);
   if (HasLeaf7 && ((EBX >> 24) & 1))
     setFeature(FEATURE_CLWB);
   if (HasLeaf7 && ((EBX >> 26) & 1) && HasAVX512Save)
