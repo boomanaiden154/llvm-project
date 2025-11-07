@@ -24,30 +24,42 @@ jobs:
             cpp_compiler: clang++-22
             target: x86_64-unknown-linux-llvm
             include_scudo: ON
+            is_baremetal: OFF
           - os: ubuntu-24.04
             build_type: Release
             c_compiler: clang-22
             cpp_compiler: clang++-22
             target: x86_64-unknown-linux-llvm
             include_scudo: ON
+            is_baremetal: OFF
           - os: ubuntu-24.04
             build_type: MinSizeRel
             c_compiler: clang-22
             cpp_compiler: clang++-22
             target: x86_64-unknown-linux-llvm
             include_scudo: ON
+            is_baremetal: OFF
           - os: ubuntu-24.04-arm
             build_type: Debug
             c_compiler: clang-22
             cpp_compiler: clang++-22
             target: aarch64-unknown-linux-llvm
             include_scudo: ON
+            is_baremetal: OFF
           - os: ubuntu-24.04
             build_type: Debug
             c_compiler: clang-22
             cpp_compiler: clang++-22
             target: x86_64-unknown-uefi-llvm
             include_scudo: OFF
+            is_baremetal: OFF
+          - os: ubuntu-24.04
+            build__type: Release
+            c_compiler: clang-22
+            cpp_compiler: clang++-22
+            target: armv6m-none-eabi
+            include_scudo: OFF
+            is_baremetal: ON
           # TODO: add back gcc build when it is fixed
           # - c_compiler: gcc
           #   cpp_compiler: g++
@@ -100,6 +112,21 @@ jobs:
             -DCOMPILER_RT_BUILD_SCUDO_STANDALONE_WITH_LLVM_LIBC=ON
             -DCOMPILER_RT_BUILD_GWP_ASAN=OFF
             -DCOMPILER_RT_SCUDO_STANDALONE_BUILD_SHARED=OFF"
+        fi
+
+        if [[ ${{matrix.is_baremetal}} == "ON "]]; then
+          #export CMAKE_FLAGS="set(CMAKE_BUILD_TYPE "Release" CACHE STRING "")
+            #set(LLVM_ENABLE_RUNTIMES "libc" CACHE STRING "")
+            #set(LLVM_LIBC_FULL_BUILD "ON" CACHE BOOL "")
+            #set(CMAKE_C_COMPILER_TARGET "armv6m-none-abi" CACHE STRING "")
+            #set(CMAKE_CXX_COMPILER_TARGET "armv6m-none-abi" CACHE STRING "")
+            #set(CMAKE_ASM_COMPILER_TARGET "armv6m-none-abi" CACHE STRING "")
+            #set(CMAKE_C_COMPILER "/home/gha/llvm-project/build/bin/clang" CACHE STRING "")
+            #set(CMAKE_CXX_COMPILER "/home/gha/llvm-project/build/bin/clang++" CACHE STRING "")
+            #set(CMAKE_C_COMPILER_WORKS ON CACHE BOOL "")
+            #set(CMAKE_CXX_COMPILER_WORKS ON CACHE BOOL "")
+            #set(CMAKE_C_FLAGS "-mfloat-abi=soft" CACHE STRING "")
+            #set(CMAKE_CXX_FLAGS "-mfloat-abi=soft" CACHE STRING "")"
         fi
 
         cmake -B ${{ steps.strings.outputs.build-output-dir }} \
