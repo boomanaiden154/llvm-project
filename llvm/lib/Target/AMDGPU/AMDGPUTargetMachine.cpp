@@ -141,29 +141,29 @@ public:
                            const CGPassBuilderOption &Opts,
                            PassInstrumentationCallbacks *PIC);
 
-  void addIRPasses(AddIRPass &) const;
-  void addCodeGenPrepare(AddIRPass &) const;
-  void addPreISel(AddIRPass &addPass) const;
-  void addILPOpts(AddMachinePass &) const;
-  void addAsmPrinter(AddMachinePass &, CreateMCStreamer) const;
-  Error addInstSelector(AddMachinePass &) const;
-  void addPreRewrite(AddMachinePass &) const;
-  void addMachineSSAOptimization(AddMachinePass &) const;
-  void addPostRegAlloc(AddMachinePass &) const;
-  void addPreEmitPass(AddMachinePass &) const;
-  void addPreEmitRegAlloc(AddMachinePass &) const;
-  Error addRegAssignmentOptimized(AddMachinePass &) const;
-  void addPreRegAlloc(AddMachinePass &) const;
-  void addOptimizedRegAlloc(AddMachinePass &) const;
-  void addPreSched2(AddMachinePass &) const;
+  void addIRPasses(AddPass &) const;
+  void addCodeGenPrepare(AddPass &) const;
+  void addPreISel(AddPass &addPass) const;
+  void addILPOpts(AddPass &) const;
+  void addAsmPrinter(AddPass &, CreateMCStreamer) const;
+  Error addInstSelector(AddPass &) const;
+  void addPreRewrite(AddPass &) const;
+  void addMachineSSAOptimization(AddPass &) const;
+  void addPostRegAlloc(AddPass &) const;
+  void addPreEmitPass(AddPass &) const;
+  void addPreEmitRegAlloc(AddPass &) const;
+  Error addRegAssignmentOptimized(AddPass &) const;
+  void addPreRegAlloc(AddPass &) const;
+  void addOptimizedRegAlloc(AddPass &) const;
+  void addPreSched2(AddPass &) const;
 
   /// Check if a pass is enabled given \p Opt option. The option always
   /// overrides defaults if explicitly used. Otherwise its default will be used
   /// given that a pass shall work at an optimization \p Level minimum.
   bool isPassEnabled(const cl::opt<bool> &Opt,
                      CodeGenOptLevel Level = CodeGenOptLevel::Default) const;
-  void addEarlyCSEOrGVNPass(AddIRPass &) const;
-  void addStraightLineScalarOptimizationPasses(AddIRPass &) const;
+  void addEarlyCSEOrGVNPass(AddPass &) const;
+  void addStraightLineScalarOptimizationPasses(AddPass &) const;
 };
 
 class SGPRRegisterRegAlloc : public RegisterRegAllocBase<SGPRRegisterRegAlloc> {
@@ -2099,7 +2099,7 @@ AMDGPUCodeGenPassBuilder::AMDGPUCodeGenPassBuilder(
               ShadowStackGCLoweringPass>();
 }
 
-void AMDGPUCodeGenPassBuilder::addIRPasses(AddIRPass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addIRPasses(AddPass &addPass) const {
   if (RemoveIncompatibleFunctions && TM.getTargetTriple().isAMDGCN())
     addPass(AMDGPURemoveIncompatibleFunctionsPass(TM));
 
@@ -2174,7 +2174,7 @@ void AMDGPUCodeGenPassBuilder::addIRPasses(AddIRPass &addPass) const {
     addEarlyCSEOrGVNPass(addPass);
 }
 
-void AMDGPUCodeGenPassBuilder::addCodeGenPrepare(AddIRPass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addCodeGenPrepare(AddPass &addPass) const {
   if (TM.getOptLevel() > CodeGenOptLevel::None)
     addPass(AMDGPUPreloadKernelArgumentsPass(TM));
 
@@ -2205,7 +2205,7 @@ void AMDGPUCodeGenPassBuilder::addCodeGenPrepare(AddIRPass &addPass) const {
   addPass(LowerSwitchPass());
 }
 
-void AMDGPUCodeGenPassBuilder::addPreISel(AddIRPass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addPreISel(AddPass &addPass) const {
 
   if (TM.getOptLevel() > CodeGenOptLevel::None) {
     addPass(FlattenCFGPass());
@@ -2243,33 +2243,33 @@ void AMDGPUCodeGenPassBuilder::addPreISel(AddIRPass &addPass) const {
           /*Force=*/true);
 }
 
-void AMDGPUCodeGenPassBuilder::addILPOpts(AddMachinePass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addILPOpts(AddPass &addPass) const {
   if (EnableEarlyIfConversion)
     addPass(EarlyIfConverterPass());
 
   Base::addILPOpts(addPass);
 }
 
-void AMDGPUCodeGenPassBuilder::addAsmPrinter(AddMachinePass &addPass,
+void AMDGPUCodeGenPassBuilder::addAsmPrinter(AddPass &addPass,
                                              CreateMCStreamer) const {
   // TODO: Add AsmPrinter.
 }
 
-Error AMDGPUCodeGenPassBuilder::addInstSelector(AddMachinePass &addPass) const {
+Error AMDGPUCodeGenPassBuilder::addInstSelector(AddPass &addPass) const {
   addPass(AMDGPUISelDAGToDAGPass(TM));
   addPass(SIFixSGPRCopiesPass());
   addPass(SILowerI1CopiesPass());
   return Error::success();
 }
 
-void AMDGPUCodeGenPassBuilder::addPreRewrite(AddMachinePass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addPreRewrite(AddPass &addPass) const {
   if (EnableRegReassign) {
     addPass(GCNNSAReassignPass());
   }
 }
 
 void AMDGPUCodeGenPassBuilder::addMachineSSAOptimization(
-    AddMachinePass &addPass) const {
+    AddPass &addPass) const {
   Base::addMachineSSAOptimization(addPass);
 
   addPass(SIFoldOperandsPass());
@@ -2288,7 +2288,7 @@ void AMDGPUCodeGenPassBuilder::addMachineSSAOptimization(
 }
 
 void AMDGPUCodeGenPassBuilder::addOptimizedRegAlloc(
-    AddMachinePass &addPass) const {
+    AddPass &addPass) const {
   if (EnableDCEInRA)
     insertPass<DetectDeadLanesPass>(DeadMachineInstructionElimPass());
 
@@ -2326,13 +2326,13 @@ void AMDGPUCodeGenPassBuilder::addOptimizedRegAlloc(
   Base::addOptimizedRegAlloc(addPass);
 }
 
-void AMDGPUCodeGenPassBuilder::addPreRegAlloc(AddMachinePass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addPreRegAlloc(AddPass &addPass) const {
   if (getOptLevel() != CodeGenOptLevel::None)
     addPass(AMDGPUPrepareAGPRAllocPass());
 }
 
 Error AMDGPUCodeGenPassBuilder::addRegAssignmentOptimized(
-    AddMachinePass &addPass) const {
+    AddPass &addPass) const {
   // TODO: Check --regalloc-npm option
 
   addPass(GCNPreRALongBranchRegPass());
@@ -2373,20 +2373,20 @@ Error AMDGPUCodeGenPassBuilder::addRegAssignmentOptimized(
   return Error::success();
 }
 
-void AMDGPUCodeGenPassBuilder::addPostRegAlloc(AddMachinePass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addPostRegAlloc(AddPass &addPass) const {
   addPass(SIFixVGPRCopiesPass());
   if (TM.getOptLevel() > CodeGenOptLevel::None)
     addPass(SIOptimizeExecMaskingPass());
   Base::addPostRegAlloc(addPass);
 }
 
-void AMDGPUCodeGenPassBuilder::addPreSched2(AddMachinePass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addPreSched2(AddPass &addPass) const {
   if (TM.getOptLevel() > CodeGenOptLevel::None)
     addPass(SIShrinkInstructionsPass());
   addPass(SIPostRABundlerPass());
 }
 
-void AMDGPUCodeGenPassBuilder::addPreEmitPass(AddMachinePass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addPreEmitPass(AddPass &addPass) const {
   if (isPassEnabled(EnableVOPD, CodeGenOptLevel::Less)) {
     addPass(GCNCreateVOPDPass());
   }
@@ -2436,7 +2436,7 @@ bool AMDGPUCodeGenPassBuilder::isPassEnabled(const cl::opt<bool> &Opt,
   return Opt;
 }
 
-void AMDGPUCodeGenPassBuilder::addEarlyCSEOrGVNPass(AddIRPass &addPass) const {
+void AMDGPUCodeGenPassBuilder::addEarlyCSEOrGVNPass(AddPass &addPass) const {
   if (TM.getOptLevel() == CodeGenOptLevel::Aggressive)
     addPass(GVNPass());
   else
@@ -2444,7 +2444,7 @@ void AMDGPUCodeGenPassBuilder::addEarlyCSEOrGVNPass(AddIRPass &addPass) const {
 }
 
 void AMDGPUCodeGenPassBuilder::addStraightLineScalarOptimizationPasses(
-    AddIRPass &addPass) const {
+    AddPass &addPass) const {
   if (isPassEnabled(EnableLoopPrefetch, CodeGenOptLevel::Aggressive))
     addPass(LoopDataPrefetchPass());
 
