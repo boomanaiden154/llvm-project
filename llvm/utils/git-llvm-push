@@ -22,7 +22,7 @@ GITHUB_REMOTE_NAME = "origin"
 UPSTREAM_REMOTE_NAME = "upstream"
 
 LLVM_GITHUB_TOKEN_VAR = "LLVM_GITHUB_TOKEN"
-LLVM_REPO = "llvm/llvm-project"
+LLVM_REPO = "boomanaiden154/llvm-project"
 GITHUB_API = "https://api.github.com"
 
 MERGE_MAX_RETRIES = 10
@@ -375,10 +375,10 @@ class LLVMPRAutomator:
 
         git_env = self._get_git_env()
 
-        https_upstream_url = self._get_https_url_for_remote(self.config.upstream_remote)
+        upstream_url = self._get_url_for_remote(self.config.upstream_remote)
         refspec = f"refs/heads/{self.config.base_branch}:refs/remotes/{self.config.upstream_remote}/{self.config.base_branch}"
         self.runner.run_command(
-            ["git", "fetch", https_upstream_url, refspec], env=git_env
+            ["git", "fetch", upstream_url, refspec], env=git_env
         )
 
         try:
@@ -411,8 +411,8 @@ class LLVMPRAutomator:
                 )
             raise LlvmPrError("rebase operation failed.") from e
 
-    def _get_https_url_for_remote(self, remote_name: str) -> str:
-        """Gets the URL for a remote and converts it to HTTPS if necessary."""
+    def _get_url_for_remote(self, remote_name: str) -> str:
+        """Gets the URL for a remote."""
         remote_url_result = self.runner.run_command(
             ["git", "remote", "get-url", remote_name],
             capture_output=True,
@@ -421,7 +421,7 @@ class LLVMPRAutomator:
         )
         remote_url = remote_url_result.stdout.strip()
         if remote_url.startswith("git@github.com:"):
-            return remote_url.replace("git@github.com:", "https://github.com/")
+            return remote_url
         if remote_url.startswith("https://github.com/"):
             return remote_url
         raise LlvmPrError(
@@ -481,12 +481,12 @@ class LLVMPRAutomator:
 
         git_env = self._get_git_env()
 
-        https_remote_url = self._get_https_url_for_remote(self.remote)
+        remote_url = self._get_url_for_remote(self.remote)
 
         push_command = [
             "git",
             "push",
-            https_remote_url,
+            remote_url,
             f"{commit_hash}:refs/heads/{branch_name}",
         ]
         self.runner.run_command(push_command, env=git_env)
