@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "X86.h"
+#include "X86AsmPrinter.h"
 #include "X86ISelDAGToDAG.h"
 #include "X86TargetMachine.h"
 
@@ -19,6 +20,7 @@
 #include "llvm/CodeGen/IndirectBrExpand.h"
 #include "llvm/CodeGen/InterleavedAccess.h"
 #include "llvm/CodeGen/JMCInstrumenter.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Passes/CodeGenPassBuilder.h"
 #include "llvm/Passes/PassBuilder.h"
@@ -254,9 +256,10 @@ void X86CodeGenPassBuilder::addPreEmitPass2(PassManagerWrapper &PMW) const {
   }
 }
 
-void X86CodeGenPassBuilder::addAsmPrinter(PassManagerWrapper &PMW,
-                                          CreateMCStreamer) const {
-  // TODO: Add AsmPrinter.
+void X86CodeGenPassBuilder::addAsmPrinter(
+    PassManagerWrapper &PMW, CreateMCStreamer CreateAsmStreamer) const {
+  flushFPMsToMPM(PMW);
+  addModulePass(X86AsmPrinterPass(TM, CreateAsmStreamer), PMW);
 }
 
 } // namespace
@@ -264,12 +267,16 @@ void X86CodeGenPassBuilder::addAsmPrinter(PassManagerWrapper &PMW,
 void X86TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
 #define GET_PASS_REGISTRY "X86PassRegistry.def"
 #include "llvm/Passes/TargetPassRegistry.inc"
+  // TODO(boomanaiden154): Move this into the subclass once all targets that
+  // currently implement it have a ported asm-printer pass.
+  if (PIC)
+    PIC->addClassToPassName(X86AsmPrinterPass::name(), "x86-asm-printer");
 }
 
 Error X86TargetMachine::buildCodeGenPipeline(
     ModulePassManager &MPM, raw_pwrite_stream &Out, raw_pwrite_stream *DwoOut,
-    CodeGenFileType FileType, const CGPassBuilderOption &Opt,
+    CodeGenFileType FileType, const CGPassBuilderOption &Opt, MCContext &Ctx,
     PassInstrumentationCallbacks *PIC) {
   auto CGPB = X86CodeGenPassBuilder(*this, Opt, PIC);
-  return CGPB.buildPipeline(MPM, Out, DwoOut, FileType);
+  return CGPB.buildPipeline(MPM, Out, DwoOut, FileType, Ctx);
 }
