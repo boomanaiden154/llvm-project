@@ -579,19 +579,6 @@ void X86PassConfig::addPreEmitPass2() {
   const Triple &TT = TM->getTargetTriple();
   const MCAsmInfo *MAI = TM->getMCAsmInfo();
 
-  // The X86 Speculative Execution Pass must run after all control
-  // flow graph modifying passes. As a result it was listed to run right before
-  // the X86 Retpoline Thunks pass. The reason it must run after control flow
-  // graph modifications is that the model of LFENCE in LLVM has to be updated
-  // (FIXME: https://bugs.llvm.org/show_bug.cgi?id=45167). Currently the
-  // placement of this pass was hand checked to ensure that the subsequent
-  // passes don't move the code around the LFENCEs in a way that will hurt the
-  // correctness of this pass. This placement has been shown to work based on
-  // hand inspection of the codegen output.
-  addPass(createX86SpeculativeExecutionSideEffectSuppressionLegacyPass());
-  addPass(createX86IndirectThunksPass());
-  addPass(createX86ReturnThunksPass());
-
   // Insert extra int3 instructions after trailing call instructions to avoid
   // issues in the unwinder.
   if (TT.isOSWindows() && TT.isX86_64())
