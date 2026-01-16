@@ -42,18 +42,6 @@ static cl::opt<bool> OneLFENCEPerBasicBlock(
         "Omit all lfences other than the first to be placed in a basic block."),
     cl::init(false), cl::Hidden);
 
-static cl::opt<bool> OnlyLFENCENonConst(
-    "x86-seses-only-lfence-non-const",
-    cl::desc("Only lfence before groups of terminators where at least one "
-             "branch instruction has an input to the addressing mode that is a "
-             "register other than %rip."),
-    cl::init(false), cl::Hidden);
-
-static cl::opt<bool>
-    OmitBranchLFENCEs("x86-seses-omit-branch-lfences",
-                      cl::desc("Omit all lfences before branch instructions."),
-                      cl::init(false), cl::Hidden);
-
 namespace {
 
 constexpr StringRef X86SESESPassName =
@@ -128,44 +116,6 @@ bool runX86SpeculativeExecutionSideEffectSuppression(MachineFunction &MF) {
         }
         if (OneLFENCEPerBasicBlock)
           break;
-      }
-      // The following section will be LFENCEing before groups of terminators
-      // that include branches. This will close the branch prediction side
-      // channels since we will prevent code executing after misspeculation as
-      // a result of the LFENCEs placed with this logic.
-
-      // Keep track of the first terminator in a basic block since if we need
-      // to LFENCE the terminators in this basic block we must add the
-      // instruction before the first terminator in the basic block (as
-      // opposed to before the terminator that indicates an LFENCE is
-      // required). An example of why this is necessary is that the
-      // X86InstrInfo::analyzeBranch method assumes all terminators are grouped
-      // together and terminates it's analysis once the first non-termintor
-      // instruction is found.
-      if (MI.isTerminator() && FirstTerminator == nullptr)
-        FirstTerminator = &MI;
-
-      // Look for branch instructions that will require an LFENCE to be put
-      // before this basic block's terminators.
-      if (!MI.isBranch() || OmitBranchLFENCEs) {
-        // This isn't a branch or we're not putting LFENCEs before branches.
-        PrevInstIsLFENCE = false;
-        continue;
-      }
-
-      if (OnlyLFENCENonConst && hasConstantAddressingMode(MI)) {
-        // This is a branch, but it only has constant addressing mode and we're
-        // not adding LFENCEs before such branches.
-        PrevInstIsLFENCE = false;
-        continue;
-      }
-
-      // This branch requires adding an LFENCE.
-      if (!PrevInstIsLFENCE) {
-        assert(FirstTerminator && "Unknown terminator instruction");
-        BuildMI(MBB, FirstTerminator, DebugLoc(), TII->get(X86::LFENCE));
-        NumLFENCEsInserted++;
-        Modified = true;
       }
       break;
     }
