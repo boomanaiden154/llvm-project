@@ -146,17 +146,19 @@ bool CodeGenTargetMachineImpl::addAsmPrinter(PassManagerBase &PM,
                                              raw_pwrite_stream &Out,
                                              raw_pwrite_stream *DwoOut,
                                              CodeGenFileType FileType,
-                                             MCContext &Context) {
+                                             MachineModuleInfo *MMI) {
+  MCContext &Context = MMI->getContext();
   Expected<std::unique_ptr<MCStreamer>> MCStreamerOrErr =
       createMCStreamer(Out, DwoOut, FileType, Context);
   if (!MCStreamerOrErr) {
     Context.reportError(SMLoc(), toString(MCStreamerOrErr.takeError()));
     return true;
   }
+  MMI->OutStreamer = std::move(*MCStreamerOrErr);
 
   // Create the AsmPrinter, which takes ownership of AsmStreamer if successful.
   FunctionPass *Printer =
-      getTarget().createAsmPrinter(*this, std::move(*MCStreamerOrErr));
+      getTarget().createAsmPrinter(*this, MMI->OutStreamer.get());
   if (!Printer)
     return true;
 
@@ -244,7 +246,7 @@ bool CodeGenTargetMachineImpl::addPassesToEmitFile(
     return true;
 
   if (TargetPassConfig::willCompleteCodeGenPipeline()) {
-    if (addAsmPrinter(PM, Out, DwoOut, FileType, MMIWP->getMMI().getContext()))
+    if (addAsmPrinter(PM, Out, DwoOut, FileType, &MMIWP->getMMI()))
       return true;
   } else {
     // MIR printing is redundant with -filetype=null.
@@ -296,10 +298,11 @@ bool CodeGenTargetMachineImpl::addPassesToEmitMC(PassManagerBase &PM,
   std::unique_ptr<MCStreamer> AsmStreamer(getTarget().createMCObjectStreamer(
       T, *Ctx, std::unique_ptr<MCAsmBackend>(MAB), MAB->createObjectWriter(Out),
       std::move(MCE), STI));
+  MMIWP->getMMI().OutStreamer = std::move(AsmStreamer);
 
   // Create the AsmPrinter, which takes ownership of AsmStreamer if successful.
   FunctionPass *Printer =
-      getTarget().createAsmPrinter(*this, std::move(AsmStreamer));
+      getTarget().createAsmPrinter(*this, MMIWP->getMMI().OutStreamer.get());
   if (!Printer)
     return true;
 

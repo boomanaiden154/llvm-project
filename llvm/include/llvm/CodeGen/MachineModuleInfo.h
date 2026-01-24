@@ -34,6 +34,7 @@
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Compiler.h"
@@ -166,6 +167,8 @@ public:
   const Ty &getObjFileInfo() const {
     return const_cast<MachineModuleInfo*>(this)->getObjFileInfo<Ty>();
   }
+
+  std::unique_ptr<MCStreamer> OutStreamer;
 
   /// \}
 }; // End class MachineModuleInfo

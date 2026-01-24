@@ -168,8 +168,8 @@ public:
   // If it weren't for layering issues (this header is in llvm/Support, but
   // depends on MC?) this should take the Streamer by value rather than rvalue
   // reference.
-  using AsmPrinterCtorTy = AsmPrinter *(*)(
-      TargetMachine &TM, std::unique_ptr<MCStreamer> &&Streamer);
+  using AsmPrinterCtorTy = AsmPrinter *(*)(TargetMachine & TM,
+                                           MCStreamer *Streamer);
   using MCAsmBackendCtorTy = MCAsmBackend *(*)(const Target &T,
                                                const MCSubtargetInfo &STI,
                                                const MCRegisterInfo &MRI,
@@ -523,11 +523,10 @@ public:
 
   /// createAsmPrinter - Create a target specific assembly printer pass.  This
   /// takes ownership of the MCStreamer object.
-  AsmPrinter *createAsmPrinter(TargetMachine &TM,
-                               std::unique_ptr<MCStreamer> &&Streamer) const {
+  AsmPrinter *createAsmPrinter(TargetMachine &TM, MCStreamer *Streamer) const {
     if (!AsmPrinterCtorFn)
       return nullptr;
-    return AsmPrinterCtorFn(TM, std::move(Streamer));
+    return AsmPrinterCtorFn(TM, Streamer);
   }
 
   MCDisassembler *createMCDisassembler(const MCSubtargetInfo &STI,
@@ -1370,9 +1369,8 @@ template <class AsmPrinterImpl> struct RegisterAsmPrinter {
   }
 
 private:
-  static AsmPrinter *Allocator(TargetMachine &TM,
-                               std::unique_ptr<MCStreamer> &&Streamer) {
-    return new AsmPrinterImpl(TM, std::move(Streamer));
+  static AsmPrinter *Allocator(TargetMachine &TM, MCStreamer *Streamer) {
+    return new AsmPrinterImpl(TM, Streamer);
   }
 };
 

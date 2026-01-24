@@ -411,11 +411,9 @@ Align AsmPrinter::getGVAlignment(const GlobalObject *GV, const DataLayout &DL,
   return Alignment;
 }
 
-AsmPrinter::AsmPrinter(TargetMachine &tm, std::unique_ptr<MCStreamer> Streamer,
-                       char &ID)
+AsmPrinter::AsmPrinter(TargetMachine &tm, MCStreamer *Streamer, char &ID)
     : MachineFunctionPass(ID), TM(tm), MAI(tm.getMCAsmInfo()),
-      OutContext(Streamer->getContext()), OutStreamer(std::move(Streamer)),
-      SM(*this) {
+      OutContext(Streamer->getContext()), OutStreamer(Streamer), SM(*this) {
   VerboseAsm = OutStreamer->isVerboseAsm();
   DwarfUsesRelocationsAcrossSections =
       MAI->doesDwarfUseRelocationsAcrossSections();
@@ -4879,7 +4877,7 @@ void AsmPrinter::emitXRayTable() {
                                     Ctx),
             Ctx),
         WordSizeBytes);
-    Sled.emit(WordSizeBytes, OutStreamer.get());
+    Sled.emit(WordSizeBytes, OutStreamer);
   }
   MCSymbol *SledsEnd = OutContext.createTempSymbol("xray_sleds_end", true);
   OutStreamer->emitLabel(SledsEnd);

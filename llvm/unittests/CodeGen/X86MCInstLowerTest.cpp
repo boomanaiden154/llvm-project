@@ -67,8 +67,10 @@ protected:
     if (auto Err = MCStreamerOrErr.takeError())
       return nullptr;
 
-    AsmPrinter *Printer =
-        TM->getTarget().createAsmPrinter(*TM, std::move(*MCStreamerOrErr));
+    MMIWP->getMMI().OutStreamer = std::move(*MCStreamerOrErr);
+
+    AsmPrinter *Printer = TM->getTarget().createAsmPrinter(
+        *TM, MMIWP->getMMI().OutStreamer.get());
 
     if (!Printer)
       return nullptr;

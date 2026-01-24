@@ -110,7 +110,7 @@ Error DwarfEmitterImpl::init(Triple TheTriple,
                              "no target machine for target %s",
                              TripleName.c_str());
 
-  Asm.reset(TheTarget->createAsmPrinter(*TM, std::unique_ptr<MCStreamer>(MS)));
+  Asm.reset(TheTarget->createAsmPrinter(*TM, MS));
   if (!Asm)
     return createStringError(std::errc::invalid_argument,
                              "no asm printer for target %s",

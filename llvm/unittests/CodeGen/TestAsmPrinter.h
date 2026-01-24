@@ -49,7 +49,7 @@ public:
 
 class TestAsmPrinter {
   std::unique_ptr<MCContext> MC;
-  MockMCStreamer *MS = nullptr; // Owned by AsmPrinter
+  std::unique_ptr<MockMCStreamer> MS;
   std::unique_ptr<TargetMachine> TM;
   std::unique_ptr<AsmPrinter> Asm;
 

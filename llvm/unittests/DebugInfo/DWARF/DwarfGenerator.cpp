@@ -511,7 +511,7 @@ llvm::Error dwarfgen::Generator::init(Triple TheTriple, uint16_t V) {
 
 
   // Finally create the AsmPrinter we'll use to emit the DIEs.
-  Asm.reset(TheTarget->createAsmPrinter(*TM, std::unique_ptr<MCStreamer>(MS)));
+  Asm.reset(TheTarget->createAsmPrinter(*TM, MS));
   if (!Asm)
     return make_error<StringError>("no asm printer for target " + TripleName,
                                    inconvertibleErrorCode());

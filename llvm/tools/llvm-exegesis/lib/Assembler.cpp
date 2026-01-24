@@ -307,7 +307,7 @@ Error assembleToStream(const ExegesisTarget &ET,
   MF.getRegInfo().freezeReservedRegs();
 
   // We create the pass manager, run the passes to populate AsmBuffer.
-  MCContext &MCContext = MMIWP->getMMI().getContext();
+  MachineModuleInfo *MMI = &MMIWP->getMMI();
   legacy::PassManager PM;
 
   TargetLibraryInfoImpl TLII(Module->getTargetTriple());
@@ -330,7 +330,7 @@ Error assembleToStream(const ExegesisTarget &ET,
 
   // AsmPrinter is responsible for generating the assembly into AsmBuffer.
   if (TM->addAsmPrinter(PM, AsmStream, nullptr, CodeGenFileType::ObjectFile,
-                        MCContext))
+                        MMI))
     return make_error<Failure>("Cannot add AsmPrinter passes");
 
   PM.run(*Module); // Run all the passes

@@ -4247,7 +4247,7 @@ void DwarfDebug::beginCodeAlignment(const MachineBasicBlock &MBB) {
   if (PrevLoc.getLine()) {
     Asm->OutStreamer->emitDwarfLocDirective(
         PrevLoc.getFileNum(), 0, PrevLoc.getColumn(), 0, 0, 0, StringRef());
-    MCDwarfLineEntry::make(Asm->OutStreamer.get(),
+    MCDwarfLineEntry::make(Asm->OutStreamer,
                            Asm->OutStreamer->getCurrentSectionOnly());
   }
 }

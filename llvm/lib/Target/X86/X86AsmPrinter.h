@@ -159,7 +159,7 @@ private:
   void emitLabelAndRecordForImportCallOptimization(ImportCallKind Kind);
 
 public:
-  X86AsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer);
+  X86AsmPrinter(TargetMachine &TM, MCStreamer *Streamer);
 
   StringRef getPassName() const override {
     return "X86 Assembly Printer";

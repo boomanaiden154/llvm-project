@@ -53,9 +53,8 @@
 
 using namespace llvm;
 
-X86AsmPrinter::X86AsmPrinter(TargetMachine &TM,
-                             std::unique_ptr<MCStreamer> Streamer)
-    : AsmPrinter(TM, std::move(Streamer), ID), FM(*this) {}
+X86AsmPrinter::X86AsmPrinter(TargetMachine &TM, MCStreamer *Streamer)
+    : AsmPrinter(TM, Streamer, ID), FM(*this) {}
 
 //===----------------------------------------------------------------------===//
 // Primitive Helper Functions.

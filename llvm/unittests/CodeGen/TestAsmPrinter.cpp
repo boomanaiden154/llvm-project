@@ -62,10 +62,9 @@ llvm::Error TestAsmPrinter::init(const Target *TheTarget, StringRef TripleName,
   TM->getObjFileLowering()->Initialize(*MC, *TM);
   MC->setObjectFileInfo(TM->getObjFileLowering());
 
-  MS = new StrictMock<MockMCStreamer>(MC.get());
+  MS = std::make_unique<StrictMock<MockMCStreamer>>(MC.get());
 
-  Asm.reset(
-      TheTarget->createAsmPrinter(*TM, std::unique_ptr<MockMCStreamer>(MS)));
+  Asm.reset(TheTarget->createAsmPrinter(*TM, MS.get()));
   if (!Asm)
     return make_error<StringError>("no asm printer for target " + TripleName,
                                    inconvertibleErrorCode());

@@ -103,7 +103,7 @@ public:
   /// This is the MCStreamer object for the file we are generating. This
   /// contains the transient state for the current translation unit that we are
   /// generating (such as the current section etc).
-  std::unique_ptr<MCStreamer> OutStreamer;
+  MCStreamer *OutStreamer;
 
   /// The current machine function.
   MachineFunction *MF = nullptr;
@@ -266,7 +266,7 @@ private:
   bool DbgInfoAvailable = false;
 
 protected:
-  AsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer,
+  AsmPrinter(TargetMachine &TM, MCStreamer *Streamer,
              char &ID = AsmPrinter::ID);
 
 public:

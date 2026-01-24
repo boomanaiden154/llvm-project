@@ -40,6 +40,7 @@ class Function;
 class GlobalValue;
 class MachineInstr;
 class MachineModuleInfoWrapperPass;
+class MachineModuleInfo;
 struct MachineSchedContext;
 class Mangler;
 class MCAsmInfo;
@@ -503,7 +504,7 @@ public:
   /// machine code from the MI representation.
   virtual bool addAsmPrinter(PassManagerBase &PM, raw_pwrite_stream &Out,
                              raw_pwrite_stream *DwoOut,
-                             CodeGenFileType FileType, MCContext &Context) {
+                             CodeGenFileType FileType, MachineModuleInfo *MMI) {
     return false;
   }
 
