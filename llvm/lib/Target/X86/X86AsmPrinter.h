@@ -16,11 +16,13 @@
 #include "llvm/CodeGen/FaultMaps.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
+#include "llvm/CodeGen/MachineFunctionAnalysisManager.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
 #include "llvm/CodeGen/MachinePassManager.h"
 #include "llvm/CodeGen/StackMaps.h"
+#include "llvm/IR/Analysis.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/MC/MCCodeEmitter.h"
@@ -216,25 +218,50 @@ public:
   std::function<StaticDataProfileInfo *(Module &)> GetSDPI;
 };
 
-class X86AsmPrinterPass : public PassInfoMixin<X86AsmPrinterPass> {
+void setupX86AsmPrinter(X86AsmPrinter &Printer, ModuleAnalysisManager &MAM) {
+  Printer.GetPSI = [&MAM](Module &M) {
+    return &MAM.getResult<ProfileSummaryAnalysis>(M);
+  };
+  // TODO(boomanaiden154): Port the SDPI analysis to the new pass manager.
+  Printer.GetSDPI = [](Module &M) { return nullptr; };
+}
+
+class X86AsmPrinterBeginPass : public PassInfoMixin<X86AsmPrinterBeginPass> {
 public:
-  X86AsmPrinterPass(TargetMachine &TM, CreateMCStreamer CreateAsmStreamer)
-      : TM(TM), CreateAsmStreamer(CreateAsmStreamer) {};
+  X86AsmPrinterBeginPass(TargetMachine &TM, CreateMCStreamer CreateAsmStreamer) : TM(TM) {}
 
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
-    std::unique_ptr<MCStreamer> AsmStreamer = cantFail(CreateAsmStreamer(TM));
-    X86AsmPrinter AsmPrinter(TM, std::move(AsmStreamer));
+    MachineModuleInfo &MMI = MAM.getResult<MachineModuleAnalysis>(M).getMMI();
+    X86AsmPrinter AsmPrinter(TM, MMI.OutStreamer.get());
     AsmPrinter.GetPSI = [&MAM](Module &M) {
       return &MAM.getResult<ProfileSummaryAnalysis>(M);
     };
-    // TODO(boomanaiden154): Port the SDPI analysis to the new pass manager.
-    AsmPrinter.GetSDPI = [](Module &M) { return nullptr; };
-    return runOnModuleNewPM(M, MAM, AsmPrinter);
+
   }
 
 private:
   TargetMachine &TM;
-  CreateMCStreamer CreateAsmStreamer;
+};
+
+class X86AsmPrinterPass : public PassInfoMixin<X86AsmPrinterPass> {
+public:
+  X86AsmPrinterPass(TargetMachine &TM)
+      : TM(TM) {}
+
+  PreservedAnalyses run(MachineFunction &MF, MachineFunctionAnalysisManager &MFAM) {
+    MachineModuleInfo &MMI =
+        MFAM.getResult<ModuleAnalysisManagerMachineFunctionProxy>(MF)
+            .getCachedResult<MachineModuleAnalysis>(
+                *MF.getFunction().getParent())
+            ->getMMI();
+    X86AsmPrinter AsmPrinter(TM, MMI.OutStreamer.get());
+    setupX86AsmPrinter(AsmPrinter, MAM);
+    setupAsmPrinter(M, MAM, AsmPrinter);
+
+  }
+
+private:
+  TargetMachine &TM;
 };
 
 } // end namespace llvm

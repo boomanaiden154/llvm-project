@@ -1018,7 +1018,7 @@ getMFAM(Module &M, ModuleAnalysisManager &MAM, MachineFunction &MF) {
 }
 
 template <typename AsmPrinterT>
-PreservedAnalyses runOnModuleNewPM(Module &M, ModuleAnalysisManager &MAM,
+void setupAsmPrinter(Module &M, ModuleAnalysisManager &MAM,
                                    AsmPrinterT &AsmPrinter) {
   AsmPrinter.GetMMI = [&MAM, &M]() {
     return &MAM.getResult<MachineModuleAnalysis>(M).getMMI();
@@ -1037,18 +1037,6 @@ PreservedAnalyses runOnModuleNewPM(Module &M, ModuleAnalysisManager &MAM,
   AsmPrinter.BeginGCAssembly = [](Module &M) {};
   AsmPrinter.FinishGCAssembly = [](Module &M) {};
   AsmPrinter.EmitStackMaps = [](Module &M) {};
-  AsmPrinter.doInitialization(M);
-  FunctionAnalysisManager &FAM =
-      MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
-  for (Function &F : M) {
-    if (F.isDeclaration())
-      continue;
-    MachineFunction &MF = FAM.getResult<MachineFunctionAnalysis>(F).getMF();
-    AsmPrinter.runOnMachineFunction(MF);
-    FAM.clearAnalysis<MachineFunctionAnalysis>(F);
-  }
-  AsmPrinter.doFinalization(M);
-  return PreservedAnalyses::all();
 }
 
 } // end namespace llvm
