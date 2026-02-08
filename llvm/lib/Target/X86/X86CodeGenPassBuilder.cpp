@@ -259,7 +259,10 @@ void X86CodeGenPassBuilder::addPreEmitPass2(PassManagerWrapper &PMW) const {
 void X86CodeGenPassBuilder::addAsmPrinter(
     PassManagerWrapper &PMW, CreateMCStreamer CreateAsmStreamer) const {
   flushFPMsToMPM(PMW);
-  addModulePass(X86AsmPrinterPass(TM, CreateAsmStreamer), PMW);
+  addModulePass(X86AsmPrinterBeginPass(TM, CreateAsmStreamer), PMW);
+  addMachineFunctionPass(X86AsmPrinterPass(TM), PMW);
+  flushFPMsToMPM(PMW);
+  addModulePass(X86AsmPrinterEndPass(TM), PMW);
 }
 
 } // namespace

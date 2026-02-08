@@ -218,29 +218,27 @@ public:
   std::function<StaticDataProfileInfo *(Module &)> GetSDPI;
 };
 
-void setupX86AsmPrinter(X86AsmPrinter &Printer, ModuleAnalysisManager &MAM) {
-  Printer.GetPSI = [&MAM](Module &M) {
-    return &MAM.getResult<ProfileSummaryAnalysis>(M);
-  };
-  // TODO(boomanaiden154): Port the SDPI analysis to the new pass manager.
-  Printer.GetSDPI = [](Module &M) { return nullptr; };
-}
-
 class X86AsmPrinterBeginPass : public PassInfoMixin<X86AsmPrinterBeginPass> {
 public:
-  X86AsmPrinterBeginPass(TargetMachine &TM, CreateMCStreamer CreateAsmStreamer) : TM(TM) {}
+  X86AsmPrinterBeginPass(TargetMachine &TM, CreateMCStreamer CreateAsmStreamer)
+      : TM(TM), CreateStreamer(CreateAsmStreamer) {}
 
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
     MachineModuleInfo &MMI = MAM.getResult<MachineModuleAnalysis>(M).getMMI();
+    MMI.OutStreamer = cantFail(CreateStreamer(TM));
     X86AsmPrinter AsmPrinter(TM, MMI.OutStreamer.get());
     AsmPrinter.GetPSI = [&MAM](Module &M) {
       return &MAM.getResult<ProfileSummaryAnalysis>(M);
     };
-
+    AsmPrinter.GetSDPI = [](Module &M) { return nullptr; };
+    setupAsmPrinter(M, MAM, AsmPrinter);
+    AsmPrinter.doInitialization(M);
+    return PreservedAnalyses::all();
   }
 
 private:
   TargetMachine &TM;
+  CreateMCStreamer CreateStreamer;
 };
 
 class X86AsmPrinterPass : public PassInfoMixin<X86AsmPrinterPass> {
@@ -249,17 +247,54 @@ public:
       : TM(TM) {}
 
   PreservedAnalyses run(MachineFunction &MF, MachineFunctionAnalysisManager &MFAM) {
-    MachineModuleInfo &MMI =
-        MFAM.getResult<ModuleAnalysisManagerMachineFunctionProxy>(MF)
-            .getCachedResult<MachineModuleAnalysis>(
-                *MF.getFunction().getParent())
-            ->getMMI();
+    const ModuleAnalysisManagerMachineFunctionProxy::Result &MAMProxy =
+        MFAM.getResult<ModuleAnalysisManagerMachineFunctionProxy>(MF);
+    MachineModuleInfo &MMI = MAMProxy
+                                 .getCachedResult<MachineModuleAnalysis>(
+                                     *MF.getFunction().getParent())
+                                 ->getMMI();
     X86AsmPrinter AsmPrinter(TM, MMI.OutStreamer.get());
-    setupX86AsmPrinter(AsmPrinter, MAM);
-    setupAsmPrinter(M, MAM, AsmPrinter);
-
+    AsmPrinter.GetPSI = [&MAMProxy](Module &M) {
+      return MAMProxy.getCachedResult<ProfileSummaryAnalysis>(M);
+    };
+    AsmPrinter.GetSDPI = [](Module &M) { return nullptr; };
+    AsmPrinter.GetMMI = [&MMI]() {
+      return &MMI;
+    };
+    AsmPrinter.GetORE = [&MFAM](MachineFunction &MF) {
+      return &MFAM.getResult<MachineOptimizationRemarkEmitterAnalysis>(MF);
+    };
+    AsmPrinter.GetMDT = [&MFAM](MachineFunction &MF) {
+      return &MFAM.getResult<MachineDominatorTreeAnalysis>(MF);
+    };
+    AsmPrinter.GetMLI = [&MFAM](MachineFunction &MF) {
+      return &MFAM.getResult<MachineLoopAnalysis>(MF);
+    };
+    AsmPrinter.MMI = &MMI;
+    AsmPrinter.runOnMachineFunction(MF);
+    return PreservedAnalyses::all();
   }
 
+private:
+  TargetMachine &TM;
+};
+
+class X86AsmPrinterEndPass : public PassInfoMixin<X86AsmPrinterEndPass> {
+public:
+  X86AsmPrinterEndPass(TargetMachine &TM) : TM(TM) {}
+
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
+    MachineModuleInfo &MMI = MAM.getResult<MachineModuleAnalysis>(M).getMMI();
+    X86AsmPrinter AsmPrinter(TM, MMI.OutStreamer.get());
+    AsmPrinter.GetPSI = [&MAM](Module &M) {
+      return &MAM.getResult<ProfileSummaryAnalysis>(M);
+    };
+    AsmPrinter.GetSDPI = [](Module &M) { return nullptr; };
+    AsmPrinter.MMI = &MMI;
+    setupAsmPrinter(M, MAM, AsmPrinter);
+    AsmPrinter.doFinalization(M);
+    return PreservedAnalyses::all();
+  }
 private:
   TargetMachine &TM;
 };

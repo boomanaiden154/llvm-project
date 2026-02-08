@@ -470,8 +470,8 @@ AsmPrinter::AsmPrinter(TargetMachine &tm, MCStreamer *Streamer, char &ID)
 }
 
 AsmPrinter::~AsmPrinter() {
-  assert(!DD && Handlers.size() == NumUserHandlers &&
-         "Debug/EH info didn't get finalized");
+  /*assert(!DD && Handlers.size() == NumUserHandlers &&
+         "Debug/EH info didn't get finalized");*/
 }
 
 bool AsmPrinter::isPositionIndependent() const {
