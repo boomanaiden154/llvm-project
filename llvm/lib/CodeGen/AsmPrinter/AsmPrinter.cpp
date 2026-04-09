@@ -36,6 +36,8 @@
 #include "llvm/BinaryFormat/COFF.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/CodeGen/AsmPrinterHandler.h"
+#include "llvm/CodeGen/AsmPrinterState.h"
 #include "llvm/CodeGen/BasicBlockSectionsProfileReader.h"
 #include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/GCMetadataPrinter.h"
@@ -463,13 +465,13 @@ AsmPrinter::AsmPrinter(TargetMachine &tm, std::unique_ptr<MCStreamer> Streamer,
     if (NeedsDefault)
       SM.serializeToStackMapSection();
   };
-  AssertDebugEHFinalized = [&]() {
-    assert(!DD && Handlers.size() == NumUserHandlers &&
-           "Debug/EH info didn't get finalized");
+  GetAsmPrinterState = [this]() {
+    auto *APS = getAnalysisIfAvailable<AsmPrinterStateWrapperPass>();
+    return APS ? &APS->getState() : nullptr;
   };
 }
 
-AsmPrinter::~AsmPrinter() { AssertDebugEHFinalized(); }
+AsmPrinter::~AsmPrinter() {}
 
 bool AsmPrinter::isPositionIndependent() const {
   return TM.isPositionIndependent();
@@ -530,6 +532,7 @@ void AsmPrinter::getAnalysisUsage(AnalysisUsage &AU) const {
   MachineFunctionPass::getAnalysisUsage(AU);
   AU.addRequired<MachineOptimizationRemarkEmitterPass>();
   AU.addRequired<GCModuleInfo>();
+  AU.addRequired<AsmPrinterStateWrapperPass>();
   AU.addRequired<LazyMachineBlockFrequencyInfoPass>();
   AU.addRequired<MachineBranchProbabilityInfoWrapperPass>();
   if (EmitBBHash)
@@ -631,6 +634,11 @@ bool AsmPrinter::doInitialization(Module &M) {
     OutStreamer->AddComment("End of file scope inline assembly");
     OutStreamer->addBlankLine();
   }
+
+  SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+      GetAsmPrinterState()->Handlers;
+  SmallVectorImpl<std::unique_ptr<EHStreamer>> &EHHandlers =
+      GetAsmPrinterState()->EHHandlers;
 
   if (MAI->doesSupportDebugInformation()) {
     bool EmitCodeView = M.getCodeViewFlag();
@@ -861,6 +869,8 @@ void AsmPrinter::emitGlobalVariable(const GlobalVariable *GV) {
   // sections and expected to be contiguous (e.g. ObjC metadata).
   const Align Alignment = getGVAlignment(GV, DL);
 
+  SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+      GetAsmPrinterState()->Handlers;
   for (auto &Handler : Handlers)
     Handler->setSymbolSize(GVSym, Size);
 
@@ -1144,6 +1154,10 @@ void AsmPrinter::emitFunctionHeader() {
     }
   }
 
+  SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+      GetAsmPrinterState()->Handlers;
+  SmallVectorImpl<std::unique_ptr<EHStreamer>> &EHHandlers =
+      GetAsmPrinterState()->EHHandlers;
   // Emit pre-function debug and/or EH information.
   for (auto &Handler : Handlers) {
     Handler->beginFunction(MF);
@@ -2141,6 +2155,8 @@ void AsmPrinter::emitFunctionBody() {
       if (MDNode *MD = MI.getPCSections())
         emitPCSectionsLabel(*MF, *MD);
 
+      SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+          GetAsmPrinterState()->Handlers;
       for (auto &Handler : Handlers)
         Handler->beginInstruction(&MI);
 
@@ -2480,6 +2496,10 @@ void AsmPrinter::emitFunctionBody() {
 
   // Call endBasicBlockSection on the last block now, if it wasn't already
   // called.
+  SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+      GetAsmPrinterState()->Handlers;
+  SmallVectorImpl<std::unique_ptr<EHStreamer>> &EHHandlers =
+      GetAsmPrinterState()->EHHandlers;
   if (!MF->back().isEndSection()) {
     for (auto &Handler : Handlers)
       Handler->endBasicBlockSection(MF->back());
@@ -3053,6 +3073,10 @@ bool AsmPrinter::doFinalization(Module &M) {
     OutStreamer->emitLabel(Sym);
   }
 
+  SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+    GetAsmPrinterState()->Handlers;
+  SmallVectorImpl<std::unique_ptr<EHStreamer>> &EHHandlers =
+      GetAsmPrinterState()->EHHandlers;
   // Finalize debug and EH information.
   for (auto &Handler : Handlers)
     Handler->endModule();
@@ -3063,7 +3087,8 @@ bool AsmPrinter::doFinalization(Module &M) {
   // keeping all the user-added handlers alive until the AsmPrinter is
   // destroyed.
   EHHandlers.clear();
-  Handlers.erase(Handlers.begin() + NumUserHandlers, Handlers.end());
+  Handlers.erase(Handlers.begin() + GetAsmPrinterState()->NumUserHandlers,
+                 Handlers.end());
   DD = nullptr;
 
   // If the target wants to know about weak references, print them all.
@@ -4759,6 +4784,10 @@ static void emitBasicBlockLoopComments(const MachineBasicBlock &MBB,
 /// it if appropriate.
 void AsmPrinter::emitBasicBlockStart(const MachineBasicBlock &MBB) {
   // End the previous funclet and start a new one.
+  SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+      GetAsmPrinterState()->Handlers;
+  SmallVectorImpl<std::unique_ptr<EHStreamer>> &EHHandlers =
+      GetAsmPrinterState()->EHHandlers;
   if (MBB.isEHFuncletEntry()) {
     for (auto &Handler : Handlers) {
       Handler->endFunclet();
@@ -4852,6 +4881,10 @@ void AsmPrinter::emitBasicBlockStart(const MachineBasicBlock &MBB) {
 void AsmPrinter::emitBasicBlockEnd(const MachineBasicBlock &MBB) {
   // Check if CFI information needs to be updated for this MBB with basic block
   // sections.
+  SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+      GetAsmPrinterState()->Handlers;
+  SmallVectorImpl<std::unique_ptr<EHStreamer>> &EHHandlers =
+      GetAsmPrinterState()->EHHandlers;
   if (MBB.isEndSection()) {
     for (auto &Handler : Handlers)
       Handler->endBasicBlockSection(MBB);
@@ -4964,8 +4997,10 @@ GCMetadataPrinter *AsmPrinter::getOrCreateGCPrinter(GCStrategy &S) {
 
 void AsmPrinter::addAsmPrinterHandler(
     std::unique_ptr<AsmPrinterHandler> Handler) {
+  SmallVectorImpl<std::unique_ptr<AsmPrinterHandler>> &Handlers =
+      GetAsmPrinterState()->Handlers;
   Handlers.insert(Handlers.begin(), std::move(Handler));
-  NumUserHandlers++;
+  GetAsmPrinterState()->NumUserHandlers++;
 }
 
 /// Pin vtables to this file.
@@ -5297,7 +5332,9 @@ MachineFunctionAnalysisManager &getMFAM(Module &M, ModuleAnalysisManager &MAM,
 void setupModuleAsmPrinter(Module &M, ModuleAnalysisManager &MAM,
                            AsmPrinter &AsmPrinter) {
   MachineModuleInfo &MMI = MAM.getResult<MachineModuleAnalysis>(M).getMMI();
+  AsmPrinterState &APS = MAM.getResult<AsmPrinterStateAnalysis>(M).getState();
   AsmPrinter.GetMMI = [&MMI]() { return &MMI; };
+  AsmPrinter.GetAsmPrinterState = [&APS]() { return &APS; };
   AsmPrinter.MMI = &MMI;
   AsmPrinter.GetORE = [&MAM, &M](MachineFunction &MF) {
     return &getMFAM(M, MAM, MF)
@@ -5313,7 +5350,6 @@ void setupModuleAsmPrinter(Module &M, ModuleAnalysisManager &MAM,
   AsmPrinter.BeginGCAssembly = [](Module &M) {};
   AsmPrinter.FinishGCAssembly = [](Module &M) {};
   AsmPrinter.EmitStackMaps = [](Module &M) {};
-  AsmPrinter.AssertDebugEHFinalized = []() {};
 }
 
 void setupMachineFunctionAsmPrinter(MachineFunctionAnalysisManager &MFAM,
@@ -5325,7 +5361,12 @@ void setupMachineFunctionAsmPrinter(MachineFunctionAnalysisManager &MFAM,
       MAMProxy
           .getCachedResult<MachineModuleAnalysis>(*MF.getFunction().getParent())
           ->getMMI();
+  AsmPrinterState &APS = MAMProxy.getCachedResult<AsmPrinterStateAnalysis>(*MF.getFunction().getParent())->getState();
+  for (std::unique_ptr<EHStreamer> &Streamer : APS.EHHandlers) {
+    Streamer->Asm = &AsmPrinter;
+  }
   AsmPrinter.GetMMI = [&MMI]() { return &MMI; };
+  AsmPrinter.GetAsmPrinterState = [&APS] {return &APS; };
   AsmPrinter.MMI = &MMI;
   AsmPrinter.GetORE = [&MFAM](MachineFunction &MF) {
     return &MFAM.getResult<MachineOptimizationRemarkEmitterAnalysis>(MF);
@@ -5340,7 +5381,6 @@ void setupMachineFunctionAsmPrinter(MachineFunctionAnalysisManager &MFAM,
   AsmPrinter.BeginGCAssembly = [](Module &M) {};
   AsmPrinter.FinishGCAssembly = [](Module &M) {};
   AsmPrinter.EmitStackMaps = [](Module &M) {};
-  AsmPrinter.AssertDebugEHFinalized = []() {};
 }
 
 } // namespace llvm

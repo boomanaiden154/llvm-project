@@ -6,6 +6,7 @@ add_llvm_component_library(LLVMAsmPrinter
   AsmPrinter.cpp
   AsmPrinterDwarf.cpp
   AsmPrinterInlineAsm.cpp
+  AsmPrinterState.cpp
   DbgEntityHistoryCalculator.cpp
   DebugHandlerBase.cpp
   DebugLocStream.cpp
