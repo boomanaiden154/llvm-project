@@ -1265,11 +1265,12 @@ GCNTargetMachine::getTargetTransformInfo(const Function &F) const {
 }
 
 Error GCNTargetMachine::buildCodeGenPipeline(
-    ModulePassManager &MPM, raw_pwrite_stream &Out, raw_pwrite_stream *DwoOut,
-    CodeGenFileType FileType, const CGPassBuilderOption &Opts, MCContext &Ctx,
+    ModulePassManager &MPM, ModuleAnalysisManager &MAM, raw_pwrite_stream &Out,
+    raw_pwrite_stream *DwoOut, CodeGenFileType FileType,
+    const CGPassBuilderOption &Opts, MCContext &Ctx,
     PassInstrumentationCallbacks *PIC) {
   AMDGPUCodeGenPassBuilder CGPB(*this, Opts, PIC);
-  return CGPB.buildPipeline(MPM, Out, DwoOut, FileType, Ctx);
+  return CGPB.buildPipeline(MPM, MAM, Out, DwoOut, FileType, Ctx);
 }
 
 ScheduleDAGInstrs *

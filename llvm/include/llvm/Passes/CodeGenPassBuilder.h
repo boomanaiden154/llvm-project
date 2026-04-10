@@ -23,6 +23,7 @@
 #include "llvm/Analysis/ScopedNoAliasAA.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/TypeBasedAliasAnalysis.h"
+#include "llvm/CodeGen/AsmPrinterAnalysis.h"
 #include "llvm/CodeGen/BranchFoldingPass.h"
 #include "llvm/CodeGen/CodeGenPrepare.h"
 #include "llvm/CodeGen/DeadMachineInstructionElim.h"
@@ -102,6 +103,7 @@
 #include "llvm/IRPrinter/IRPrintingPasses.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCTargetOptions.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
@@ -197,9 +199,9 @@ public:
       Opt.OptimizeRegAlloc = getOptLevel() != CodeGenOptLevel::None;
   }
 
-  Error buildPipeline(ModulePassManager &MPM, raw_pwrite_stream &Out,
-                      raw_pwrite_stream *DwoOut, CodeGenFileType FileType,
-                      MCContext &Ctx) const;
+  Error buildPipeline(ModulePassManager &MPM, ModuleAnalysisManager &MAM,
+                      raw_pwrite_stream &Out, raw_pwrite_stream *DwoOut,
+                      CodeGenFileType FileType, MCContext &Ctx) const;
 
   PassInstrumentationCallbacks *getPassInstrumentationCallbacks() const {
     return PIC;
@@ -572,8 +574,8 @@ private:
 
 template <typename Derived, typename TargetMachineT>
 Error CodeGenPassBuilder<Derived, TargetMachineT>::buildPipeline(
-    ModulePassManager &MPM, raw_pwrite_stream &Out, raw_pwrite_stream *DwoOut,
-    CodeGenFileType FileType, MCContext &Ctx) const {
+    ModulePassManager &MPM, ModuleAnalysisManager &MAM, raw_pwrite_stream &Out,
+    raw_pwrite_stream *DwoOut, CodeGenFileType FileType, MCContext &Ctx) const {
   auto StartStopInfo = TargetPassConfig::getStartStopInfo(*PIC);
   if (!StartStopInfo)
     return StartStopInfo.takeError();
@@ -602,8 +604,19 @@ Error CodeGenPassBuilder<Derived, TargetMachineT>::buildPipeline(
                                      &Ctx](TargetMachine &TM) {
     return TM.createMCStreamer(Out, DwoOut, FileType, Ctx);
   };
-  if (PrintAsm)
+  if (PrintAsm) {
+    Expected<std::unique_ptr<MCStreamer>> MCStreamerOrErr =
+        TM.createMCStreamer(Out, DwoOut, FileType, Ctx);
+    if (!MCStreamerOrErr)
+      return MCStreamerOrErr.takeError();
+    std::unique_ptr<AsmPrinter> Printer(TM.getTarget().createAsmPrinter(TM, std::move(*MCStreamerOrErr)));
+    if (!Printer)
+      return createStringError("Failed to create AsmPrinter");
+    MAM.registerPass([&]{
+      return AsmPrinterAnalysis(std::move(Printer));
+    });
     derived().addAsmPrinterBegin(PMW, CreateStreamer);
+  }
 
   if (PrintMIR)
     addModulePass(PrintMIRPreparePass(Out), PMW, /*Force=*/true);

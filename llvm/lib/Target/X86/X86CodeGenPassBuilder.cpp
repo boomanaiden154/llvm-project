@@ -293,9 +293,10 @@ void X86TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
 }
 
 Error X86TargetMachine::buildCodeGenPipeline(
-    ModulePassManager &MPM, raw_pwrite_stream &Out, raw_pwrite_stream *DwoOut,
-    CodeGenFileType FileType, const CGPassBuilderOption &Opt, MCContext &Ctx,
+    ModulePassManager &MPM, ModuleAnalysisManager &MAM, raw_pwrite_stream &Out,
+    raw_pwrite_stream *DwoOut, CodeGenFileType FileType,
+    const CGPassBuilderOption &Opt, MCContext &Ctx,
     PassInstrumentationCallbacks *PIC) {
   auto CGPB = X86CodeGenPassBuilder(*this, Opt, PIC);
-  return CGPB.buildPipeline(MPM, Out, DwoOut, FileType, Ctx);
+  return CGPB.buildPipeline(MPM, MAM, Out, DwoOut, FileType, Ctx);
 }

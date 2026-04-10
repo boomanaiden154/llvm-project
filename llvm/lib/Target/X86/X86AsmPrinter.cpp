@@ -25,8 +25,11 @@
 #include "llvm/Analysis/StaticDataProfileInfo.h"
 #include "llvm/BinaryFormat/COFF.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/AsmPrinterAnalysis.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
+#include "llvm/CodeGen/MachinePassManager.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGenTypes/MachineValueType.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -1157,10 +1160,9 @@ extern "C" LLVM_C_ABI void LLVMInitializeX86AsmPrinter() {
 
 PreservedAnalyses X86AsmPrinterBeginPass::run(Module &M,
                                               ModuleAnalysisManager &MAM) {
-  Expected<std::unique_ptr<MCStreamer>> Streamer = CreateStreamer(TM);
-  if (!Streamer)
-    reportFatalInternalError("Failed to create MCStreamer");
-  X86AsmPrinter AsmPrinter(TM, std::move(*Streamer));
+  X86AsmPrinter &AsmPrinter =
+      static_cast<X86AsmPrinter&>(MAM.getResult<AsmPrinterAnalysis>(M).getPrinter());
+
   AsmPrinter.GetPSI = [&MAM](Module &M) {
     return &MAM.getResult<ProfileSummaryAnalysis>(M);
   };
@@ -1172,10 +1174,10 @@ PreservedAnalyses X86AsmPrinterBeginPass::run(Module &M,
 
 PreservedAnalyses X86AsmPrinterPass::run(MachineFunction &MF,
                                          MachineFunctionAnalysisManager &MFAM) {
-  Expected<std::unique_ptr<MCStreamer>> Streamer = CreateStreamer(TM);
-  if (!Streamer)
-    reportFatalInternalError("Failed to create MCStreamer");
-  X86AsmPrinter AsmPrinter(TM, std::move(*Streamer));
+  X86AsmPrinter &AsmPrinter = static_cast<X86AsmPrinter &>(
+      MFAM.getResult<ModuleAnalysisManagerMachineFunctionProxy>(MF)
+           .getCachedResult<AsmPrinterAnalysis>(*MF.getFunction().getParent())
+           ->getPrinter());
   AsmPrinter.GetPSI = [&MFAM, &MF](Module &M) {
     return MFAM.getResult<ModuleAnalysisManagerMachineFunctionProxy>(MF)
         .getCachedResult<ProfileSummaryAnalysis>(M);
@@ -1188,10 +1190,8 @@ PreservedAnalyses X86AsmPrinterPass::run(MachineFunction &MF,
 
 PreservedAnalyses X86AsmPrinterEndPass::run(Module &M,
                                             ModuleAnalysisManager &MAM) {
-  Expected<std::unique_ptr<MCStreamer>> Streamer = CreateStreamer(TM);
-  if (!Streamer)
-    reportFatalInternalError("Failed to create MCStreamer");
-  X86AsmPrinter AsmPrinter(TM, std::move(*Streamer));
+  X86AsmPrinter &AsmPrinter = static_cast<X86AsmPrinter &>(
+      MAM.getCachedResult<AsmPrinterAnalysis>(M)->getPrinter());
   AsmPrinter.GetPSI = [&MAM](Module &M) {
     return &MAM.getResult<ProfileSummaryAnalysis>(M);
   };
