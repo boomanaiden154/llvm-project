@@ -327,7 +327,7 @@ private:
   std::optional<uint64_t> getEntryCount(const FuncT *F) const {
     if (!F->getEntryCount().has_value())
       return std::nullopt;
-    return F->getEntryCount()->getCount();
+    return F->getEntryCount();
   }
 };
 
