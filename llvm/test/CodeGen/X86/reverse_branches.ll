@@ -73,7 +73,6 @@ define i32 @test_branches_order() uwtable ssp {
 ; CHECK-NEXT:    leaq L_.str2(%rip), %rdi
 ; CHECK-NEXT:    callq _puts
 ; CHECK-NEXT:    xorl %eax, %eax
-; CHECK-NEXT:    movq %rsp, %rcx
 ; CHECK-NEXT:    jmp LBB0_8
 ; CHECK-NEXT:    .p2align 4
 ; CHECK-NEXT:  LBB0_15: ## %for.inc38
@@ -87,38 +86,38 @@ define i32 @test_branches_order() uwtable ssp {
 ; CHECK-NEXT:    jg LBB0_16
 ; CHECK-NEXT:  ## %bb.9: ## %for.cond18.preheader
 ; CHECK-NEXT:    ## in Loop: Header=BB0_8 Depth=1
-; CHECK-NEXT:    movq %rcx, %rdx
-; CHECK-NEXT:    xorl %esi, %esi
-; CHECK-NEXT:    xorl %edi, %edi
+; CHECK-NEXT:    xorl %ecx, %ecx
 ; CHECK-NEXT:    jmp LBB0_10
 ; CHECK-NEXT:    .p2align 4
 ; CHECK-NEXT:  LBB0_14: ## %exit
 ; CHECK-NEXT:    ## in Loop: Header=BB0_10 Depth=2
-; CHECK-NEXT:    addq %rsi, %r8
-; CHECK-NEXT:    incq %rdi
-; CHECK-NEXT:    decq %rsi
-; CHECK-NEXT:    addq $1001, %rdx ## imm = 0x3E9
-; CHECK-NEXT:    cmpq $-1000, %r8 ## imm = 0xFC18
+; CHECK-NEXT:    addq %rsp, %rsi
+; CHECK-NEXT:    addq %rcx, %rsi
+; CHECK-NEXT:    incq %rcx
+; CHECK-NEXT:    cmpq %rsi, %rdx
 ; CHECK-NEXT:    jne LBB0_5
 ; CHECK-NEXT:  LBB0_10: ## %for.cond18
 ; CHECK-NEXT:    ## Parent Loop BB0_8 Depth=1
 ; CHECK-NEXT:    ## => This Loop Header: Depth=2
 ; CHECK-NEXT:    ## Child Loop BB0_12 Depth 3
-; CHECK-NEXT:    cmpl $999, %edi ## imm = 0x3E7
+; CHECK-NEXT:    cmpl $999, %ecx ## imm = 0x3E7
 ; CHECK-NEXT:    jg LBB0_15
 ; CHECK-NEXT:  ## %bb.11: ## %for.body20
 ; CHECK-NEXT:    ## in Loop: Header=BB0_10 Depth=2
-; CHECK-NEXT:    movq $-1000, %r8 ## imm = 0xFC18
+; CHECK-NEXT:    imulq $1001, %rcx, %rsi ## imm = 0x3E9
+; CHECK-NEXT:    leaq (%rsp,%rsi), %rdx
+; CHECK-NEXT:    movl $1000, %edi ## imm = 0x3E8
 ; CHECK-NEXT:    .p2align 4
 ; CHECK-NEXT:  LBB0_12: ## %do.body.i
 ; CHECK-NEXT:    ## Parent Loop BB0_8 Depth=1
 ; CHECK-NEXT:    ## Parent Loop BB0_10 Depth=2
 ; CHECK-NEXT:    ## => This Inner Loop Header: Depth=3
-; CHECK-NEXT:    cmpb $120, 1000(%rdx,%r8)
+; CHECK-NEXT:    cmpb $120, (%rdx)
 ; CHECK-NEXT:    je LBB0_14
 ; CHECK-NEXT:  ## %bb.13: ## %do.cond.i
 ; CHECK-NEXT:    ## in Loop: Header=BB0_12 Depth=3
-; CHECK-NEXT:    incq %r8
+; CHECK-NEXT:    incq %rdx
+; CHECK-NEXT:    decq %rdi
 ; CHECK-NEXT:    jne LBB0_12
 ; CHECK-NEXT:  LBB0_5: ## %if.then
 ; CHECK-NEXT:    leaq L_str4(%rip), %rdi

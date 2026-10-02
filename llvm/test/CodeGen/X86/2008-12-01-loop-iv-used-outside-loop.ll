@@ -9,23 +9,25 @@ target triple = "i386-apple-darwin9.5"
 define ptr @test(ptr %Q, ptr %L) nounwind {
 ; CHECK-LABEL: test:
 ; CHECK:       ## %bb.0: ## %entry
-; CHECK-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; CHECK-NEXT:    xorl %ecx, %ecx
+; CHECK-NEXT:    movl {{[0-9]+}}(%esp), %edx
 ; CHECK-NEXT:    jmp LBB0_2
 ; CHECK-NEXT:    .p2align 4
 ; CHECK-NEXT:  LBB0_1: ## %bb
 ; CHECK-NEXT:    ## in Loop: Header=BB0_2 Depth=1
-; CHECK-NEXT:    incl %eax
+; CHECK-NEXT:    incl %ecx
 ; CHECK-NEXT:  LBB0_2: ## %bb1
 ; CHECK-NEXT:    ## =>This Inner Loop Header: Depth=1
-; CHECK-NEXT:    movzbl (%eax), %ecx
-; CHECK-NEXT:    cmpl $12, %ecx
+; CHECK-NEXT:    movzbl (%edx,%ecx), %eax
+; CHECK-NEXT:    cmpl $12, %eax
 ; CHECK-NEXT:    je LBB0_1
 ; CHECK-NEXT:  ## %bb.3: ## %bb1
 ; CHECK-NEXT:    ## in Loop: Header=BB0_2 Depth=1
-; CHECK-NEXT:    cmpl $42, %ecx
+; CHECK-NEXT:    cmpl $42, %eax
 ; CHECK-NEXT:    je LBB0_1
 ; CHECK-NEXT:  ## %bb.4: ## %bb3
-; CHECK-NEXT:    movb $4, 2(%eax)
+; CHECK-NEXT:    leal (%edx,%ecx), %eax
+; CHECK-NEXT:    movb $4, 2(%ecx,%edx)
 ; CHECK-NEXT:    retl
 entry:
 	br label %bb1
