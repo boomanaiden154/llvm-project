@@ -91,7 +91,10 @@ for.body:                                         ; preds = %for.body, %entry
 return:                                           ; preds = %for.body
   ret i32 %val
 ; CHECK-LABEL: @test4
-; CHECK: mtctr
-; CHECK: bdnz
 ; CHECK: __tls_get_addr
+; CHECK-NOT: mtctr
+; CHECK: addi {{[0-9]+}}, {{[0-9]+}}, -1
+; CHECK: cmpldi {{[0-9]+}}, 0
+; CHECK-NOT: bdnz
+; CHECK: bc 12, 1,
 }

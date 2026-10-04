@@ -7,7 +7,9 @@ target triple = "x86_64-apple-macosx10.9.0"
 ; expression.  In this testcase, the normalized expression was denormalized to
 ; an expression different from the original, and we were losing sign extension.
 
-; CHECK:    [[TMP:%[a-z]+]] = trunc i32 {{.*}} to i8
+; CHECK: for.end:
+; CHECK:    store i8 {{.*}}
+; CHECK:    [[TMP:%[a-z0-9]+]] = trunc i32 {{.*}} to i8
 ; CHECK:     {{%[a-z0-9]+}} = sext i8 [[TMP]] to i32
 
 @j = common global i32 0, align 4

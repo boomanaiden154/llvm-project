@@ -8,22 +8,21 @@ define ptr @FindChar(ptr %CurPtr) {
 ; CHECK-NEXT:    pushl %esi
 ; CHECK-NEXT:    .cfi_def_cfa_offset 8
 ; CHECK-NEXT:    .cfi_offset %esi, -8
-; CHECK-NEXT:    xorl %esi, %esi
-; CHECK-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; CHECK-NEXT:    xorl %eax, %eax
+; CHECK-NEXT:    movl {{[0-9]+}}(%esp), %esi
 ; CHECK-NEXT:    .p2align 4
 ; CHECK-NEXT:  .LBB0_1: # %bb
 ; CHECK-NEXT:    # =>This Inner Loop Header: Depth=1
-; CHECK-NEXT:    movl %esi, %edx
-; CHECK-NEXT:    movzbl (%eax,%esi), %ecx
+; CHECK-NEXT:    movzbl (%esi,%eax), %ecx
+; CHECK-NEXT:    incl %eax
 ; CHECK-NEXT:    cmpl $120, %ecx
 ; CHECK-NEXT:    je .LBB0_3
 ; CHECK-NEXT:  # %bb.2: # %bb
 ; CHECK-NEXT:    # in Loop: Header=BB0_1 Depth=1
-; CHECK-NEXT:    leal 1(%edx), %esi
 ; CHECK-NEXT:    testl %ecx, %ecx
 ; CHECK-NEXT:    jne .LBB0_1
 ; CHECK-NEXT:  .LBB0_3: # %bb7
-; CHECK-NEXT:    leal 1(%eax,%edx), %esi
+; CHECK-NEXT:    addl %eax, %esi
 ; CHECK-NEXT:    movzbl %cl, %eax
 ; CHECK-NEXT:    pushl %eax
 ; CHECK-NEXT:    .cfi_adjust_cfa_offset 4

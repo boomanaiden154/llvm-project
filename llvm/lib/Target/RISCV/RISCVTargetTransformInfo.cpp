@@ -2996,6 +2996,10 @@ InstructionCost RISCVTTIImpl::getArithmeticInstrCost(
       if (const auto *Entry = CostTableLookup(DivTbl, ISDOpcode, LT.second))
         return Entry->Cost * LT.first;
 
+    if (ISDOpcode == ISD::MUL &&
+        !TLI->isOperationLegalOrPromote(ISDOpcode, LT.second))
+      return TTI::TCC_Expensive * LT.first;
+
     return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info, Op2Info,
                                          Args, CtxI);
   }

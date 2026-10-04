@@ -1782,7 +1782,16 @@ bool ComplexDeinterleavingGraph::collectPotentialReductions(BasicBlock *B) {
       FinalReduction = dyn_cast<Instruction>(U);
     }
 
-    if (NumUsers != 2 || !FinalReduction || FinalReduction->getParent() == B ||
+    if (NumUsers != 2 || !FinalReduction || FinalReduction->getParent() == B)
+      continue;
+
+    if (auto *LCSSAPhi = dyn_cast<PHINode>(FinalReduction)) {
+      if (LCSSAPhi->getNumIncomingValues() != 1 || !LCSSAPhi->hasOneUse())
+        continue;
+      FinalReduction = dyn_cast<Instruction>(*LCSSAPhi->user_begin());
+    }
+
+    if (!FinalReduction || FinalReduction->getParent() == B ||
         isa<PHINode>(FinalReduction))
       continue;
 
@@ -2494,12 +2503,26 @@ void ComplexDeinterleavingGraph::processReductionOperation(
                                                OperationReplacement->getType(),
                                                OperationReplacement);
 
+  auto ReplaceReductionUse = [](Instruction *ReductionOp,
+                                Instruction *FinalReduction, Value *NewVal) {
+    for (User *U : llvm::make_early_inc_range(ReductionOp->users())) {
+      if (auto *LCSSAPhi = dyn_cast<PHINode>(U)) {
+        if (LCSSAPhi->getNumIncomingValues() == 1) {
+          LCSSAPhi->replaceAllUsesWith(NewVal);
+          LCSSAPhi->eraseFromParent();
+          return;
+        }
+      }
+    }
+    FinalReduction->replaceUsesOfWith(ReductionOp, NewVal);
+  };
+
   auto *NewReal = Builder.CreateExtractValue(Deinterleave, (uint64_t)0);
-  FinalReductionReal->replaceUsesOfWith(Real, NewReal);
+  ReplaceReductionUse(Real, FinalReductionReal, NewReal);
 
   Builder.SetInsertPoint(FinalReductionImag);
   auto *NewImag = Builder.CreateExtractValue(Deinterleave, 1);
-  FinalReductionImag->replaceUsesOfWith(Imag, NewImag);
+  ReplaceReductionUse(Imag, FinalReductionImag, NewImag);
 }
 
 void ComplexDeinterleavingGraph::replaceNodes() {

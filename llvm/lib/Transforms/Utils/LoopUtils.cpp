@@ -1978,7 +1978,8 @@ int llvm::rewriteLoopExitValues(Loop *L, LoopInfo *LI, TargetLibraryInfo *TLI,
   // calculate the cost of other SCEV's after expanding SCEV 'A', thus
   // potentially giving cost bonus to those other SCEV's?
 
-  bool LoopCanBeDel = canLoopBeDeleted(L, RewritePhiSet);
+  bool LoopCanBeDel = ReplaceExitValue != UnusedIndVarInLoop &&
+                      canLoopBeDeleted(L, RewritePhiSet);
   int NumReplaced = 0;
 
   // Transformation.
