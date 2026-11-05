@@ -17,6 +17,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/VectorUtils.h"
+#include "llvm/IR/Attributes.h"
 #include "llvm/IR/BundleAttributes.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/InstVisitor.h"
@@ -24,6 +25,7 @@
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/TargetParser/Triple.h"
 
 #include <cassert>
@@ -1129,6 +1131,43 @@ public:
     if (CB.doesNotReturn() || (CurrentFrame->ResolvedCallee &&
                                CurrentFrame->ResolvedCallee->doesNotReturn()))
       reportImmediateUB() << "Return from a noreturn function/callsite.";
+
+    if (CurrentFrame->ResolvedCallee) {
+      for (const auto &[FnArg, FnArgValue] :
+           zip_equal(CurrentFrame->ResolvedCallee->args(),
+                     CurrentFrame->CalleeArgs)) {
+        DeadOnReturnInfo DREInfo = FnArg.getDeadOnReturnInfo();
+        if (DREInfo.isZeroSized())
+          continue;
+        if (FnArgValue.isPoison())
+          continue;
+        auto *MO = Ctx.checkProvenance(FnArgValue.asPointer(),
+                                       [](const Provenance &) { return true; });
+        if (!MO)
+          continue;
+        if (DREInfo.coversAllReachableMemory()) {
+          fill(MO->getBytes(), Byte::poison());
+          continue;
+        }
+
+        assert(FnArgValue.isPointer() &&
+               "dead_on_return should only be attached to pointers");
+        std::optional<uint64_t> PtrAddr =
+            FnArgValue.asPointer().address().tryZExtValue();
+        if (!PtrAddr)
+          continue;
+        uint64_t BaseAddr = MO->getAddress();
+        uint64_t EndAddr = BaseAddr + MO->getSize();
+        uint64_t DeadEnd =
+            SaturatingAdd(*PtrAddr, DREInfo.getNumberOfDeadBytes());
+        if (*PtrAddr < EndAddr && DeadEnd > BaseAddr) {
+          uint64_t StartOffset = std::max(*PtrAddr, BaseAddr) - BaseAddr;
+          uint64_t EndOffset = std::min(DeadEnd, EndAddr) - BaseAddr;
+          fill(MO->getBytes().slice(StartOffset, EndOffset - StartOffset),
+               Byte::poison());
+        }
+      }
+    }
 
     AnyValue &RetVal = CurrentFrame->CalleeRetVal;
     if (Function *Oracle = getSpeculativeLoadOracle(CB)) {
