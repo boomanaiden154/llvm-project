@@ -10,6 +10,10 @@ define void @f_no_store(ptr dead_on_return %p) {
   ret void
 }
 
+define void @f_no_store_sized(ptr dead_on_return(1) %p) {
+  ret void
+}
+
 define void @f_sized_does_store(ptr dead_on_return(1) %p) {
   store i8 1, ptr %p
   ret void
@@ -64,10 +68,25 @@ define i32 @main() {
   %p9 = alloca i8
   store i8 0, ptr %p9
   %p10 = getelementptr i8, ptr %p9, i8 -1
-  call void @f_no_store(ptr %p10)
-  %p11 = getelementptr i8, ptr %p1, i8 1
-  call void @f_no_store(ptr %p11)
+  call void @f_no_store_sized(ptr %p10)
+  %p11 = getelementptr i8, ptr %p9, i8 1
+  call void @f_no_store_sized(ptr %p11)
   %x8 = load i8, ptr %p9
+
+  ; Check that we correctly poison bytes for pointers with wildcard provenance
+  ; and that evaluating dead_on_return does not impact provenance.
+  %p12 = alloca i8
+  %p13 = alloca i8
+  store i8 0, ptr %p12
+  store i8 0, ptr %p13
+  %addr1 = ptrtoint ptr %p12 to i64
+  %addr2 = ptrtoint ptr %p13 to i64
+  %ptrdiff = sub i64 %addr2, %addr1
+  %p14 = inttoptr i64 %addr1 to ptr
+  %p15 = getelementptr i8, ptr %p14, i64 %ptrdiff
+  call void @f_no_store(ptr %p15)
+  %x9 = load i8, ptr %p14
+  %x10 = load i8, ptr %p13
 
   ret i32 0
 }
@@ -128,17 +147,17 @@ define i32 @main() {
 ; CHECK-NEXT:   %p9 = alloca i8, align 1 => ptr 0x15 [p9]
 ; CHECK-NEXT:   store i8 0, ptr %p9, align 1
 ; CHECK-NEXT:   %p10 = getelementptr i8, ptr %p9, i8 -1 => ptr 0x14 [p9 + -1]
-; CHECK-NEXT: Entering function: f_no_store
+; CHECK-NEXT: Entering function: f_no_store_sized
 ; CHECK-NEXT:   ptr %p = ptr 0x14 [p9 + -1]
 ; CHECK-NEXT:   ret void
-; CHECK-NEXT: Exiting function: f_no_store
-; CHECK-NEXT:   call void @f_no_store(ptr %p10)
-; CHECK-NEXT:   %p11 = getelementptr i8, ptr %p1, i8 1 => ptr 0x9 [p1 + 1]
-; CHECK-NEXT: Entering function: f_no_store
-; CHECK-NEXT:   ptr %p = ptr 0x9 [p1 + 1]
+; CHECK-NEXT: Exiting function: f_no_store_sized
+; CHECK-NEXT:   call void @f_no_store_sized(ptr %p10)
+; CHECK-NEXT:   %p11 = getelementptr i8, ptr %p9, i8 1 => ptr 0x16 [p9 + 1]
+; CHECK-NEXT: Entering function: f_no_store_sized
+; CHECK-NEXT:   ptr %p = ptr 0x16 [p9 + 1]
 ; CHECK-NEXT:   ret void
-; CHECK-NEXT: Exiting function: f_no_store
-; CHECK-NEXT:   call void @f_no_store(ptr %p11)
-; CHECK-NEXT:   %x8 = load i8, ptr %p9, align 1 => poison
+; CHECK-NEXT: Exiting function: f_no_store_sized
+; CHECK-NEXT:   call void @f_no_store_sized(ptr %p11)
+; CHECK-NEXT:   %x8 = load i8, ptr %p9, align 1 => i8 0
 ; CHECK-NEXT:   ret i32 0
 ; CHECK-NEXT: Exiting function: main

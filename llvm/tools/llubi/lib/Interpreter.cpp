@@ -1134,15 +1134,18 @@ public:
 
     if (CurrentFrame->ResolvedCallee) {
       for (const auto &[FnArg, FnArgValue] :
-           zip_equal(CurrentFrame->ResolvedCallee->args(),
+           zip(CurrentFrame->ResolvedCallee->args(),
                      CurrentFrame->CalleeArgs)) {
+        if (!FnArg.getType()->isPointerTy())
+          continue;
         DeadOnReturnInfo DREInfo = FnArg.getDeadOnReturnInfo();
         if (DREInfo.isZeroSized())
           continue;
         if (FnArgValue.isPoison())
           continue;
-        auto *MO = Ctx.checkProvenance(FnArgValue.asPointer(),
-                                       [](const Provenance &) { return true; });
+        auto *MO = Ctx.checkProvenance(
+            FnArgValue.asPointer(), [](const Provenance &) { return true; },
+            /*HasSideEffect=*/false);
         if (!MO)
           continue;
         if (DREInfo.coversAllReachableMemory()) {
@@ -1150,8 +1153,6 @@ public:
           continue;
         }
 
-        assert(FnArgValue.isPointer() &&
-               "dead_on_return should only be attached to pointers");
         std::optional<uint64_t> PtrAddr =
             FnArgValue.asPointer().address().tryZExtValue();
         if (!PtrAddr)
