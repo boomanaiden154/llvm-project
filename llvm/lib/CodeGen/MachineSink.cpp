@@ -20,6 +20,7 @@
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/PointerIntPair.h"
+#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -830,6 +831,9 @@ bool MachineSinkingLegacy::runOnMachineFunction(MachineFunction &MF) {
 bool MachineSinking::run(MachineFunction &MF) {
   LLVM_DEBUG(dbgs() << "******** Machine Sinking ********\n");
 
+  if (MF.empty() || !DT->getRootNode())
+    return false;
+
   STI = &MF.getSubtarget();
   TII = STI->getInstrInfo();
   TRI = STI->getRegisterInfo();
@@ -837,20 +841,37 @@ bool MachineSinking::run(MachineFunction &MF) {
 
   bool EverMadeChange = false;
 
+  // Visit blocks in post-order of the dominator tree (bottom-up) so uses are
+  // sunk to their final blocks before their defining instructions are visited,
+  // and defs from ancestor blocks are inserted before defs from descendants.
+  SmallVector<MachineDomTreeNode *, 16> PostOrderDT;
+  auto RebuildPostOrder = [&]() {
+    PostOrderDT.clear();
+    llvm::append_range(PostOrderDT, post_order(DT->getRootNode()));
+  };
+  RebuildPostOrder();
+
   while (true) {
     bool MadeChange = false;
 
-    // Process all basic blocks.
+    // Process all reachable basic blocks bottom-up in dominator post-order.
     CEBCandidates.clear();
     CEMergeCandidates.clear();
     ToSplit.clear();
-    for (auto &MBB : MF)
-      MadeChange |= ProcessBlock(MBB);
+    for (MachineDomTreeNode *DTN : PostOrderDT)
+      MadeChange |= ProcessBlock(*DTN->getBlock());
 
-    // If we have anything we marked as toSplit, split it now.
+    // If we have anything we marked as toSplit, split it now in block order.
+    bool DidSplit = false;
+    auto SortedSplits = ToSplit.takeVector();
+    llvm::stable_sort(SortedSplits, [](const auto &LHS, const auto &RHS) {
+      if (LHS.first->getNumber() != RHS.first->getNumber())
+        return LHS.first->getNumber() < RHS.first->getNumber();
+      return LHS.second->getNumber() < RHS.second->getNumber();
+    });
     MachineDomTreeUpdater MDTU(DT, PDT,
                                MachineDomTreeUpdater::UpdateStrategy::Lazy);
-    for (const auto &Pair : ToSplit) {
+    for (const auto &Pair : SortedSplits) {
       auto NewSucc = Pair.first->SplitCriticalEdge(
           Pair.second, {/*LIS=*/nullptr, /*SI=*/nullptr, MLI}, &MDTU);
       if (NewSucc != nullptr) {
@@ -862,10 +883,17 @@ bool MachineSinking::run(MachineFunction &MF) {
           MBFI->onEdgeSplit(*Pair.first, *NewSucc, *MBPI);
 
         MadeChange = true;
+        DidSplit = true;
         ++NumSplit;
         CI->splitCriticalEdge(Pair.first, Pair.second, NewSucc);
       } else
         LLVM_DEBUG(dbgs() << " *** Not legal to break critical edge\n");
+    }
+    if (DidSplit) {
+      MDTU.flush();
+      HasStoreCache.clear();
+      StoreInstrCache.clear();
+      RebuildPostOrder();
     }
     // If this iteration over the code changed anything, keep iterating.
     if (!MadeChange)
@@ -1398,23 +1426,21 @@ MachineSinking::GetAllSortedSuccessors(MachineInstr &MI, MachineBasicBlock *MBB,
   return it.first->second;
 }
 
-/// FindSuccToSinkTo - Find a successor to sink this instruction to.
+/// FindSuccToSinkTo - Find a destination block to sink this instruction to by
+/// computing the nearest common dominator of all uses and walking up the
+/// dominator tree until an acceptable, profitable target block is found.
 MachineBasicBlock *
 MachineSinking::FindSuccToSinkTo(MachineInstr &MI, MachineBasicBlock *MBB,
                                  bool &BreakPHIEdge,
                                  AllSuccsCache &AllSuccessors) {
   assert(MBB && "Invalid MachineBasicBlock!");
 
-  // loop over all the operands of the specified instruction.  If there is
-  // anything we can't handle, bail out.
-
-  // SuccToSinkTo - This is the successor to sink this instruction to, once we
-  // decide.
-  MachineBasicBlock *SuccToSinkTo = nullptr;
+  // Check physical register operands and collect virtual register defs.
+  SmallVector<Register, 2> VRegDefs;
+  bool HasNonSSADef = false;
   for (const MachineOperand &MO : MI.operands()) {
     if (!MO.isReg())
-      continue; // Ignore non-register operands.
-
+      continue;
     Register Reg = MO.getReg();
     if (Reg == 0)
       continue;
@@ -1431,32 +1457,37 @@ MachineSinking::FindSuccToSinkTo(MachineInstr &MI, MachineBasicBlock *MBB,
         // A def that isn't dead. We can't move it.
         return nullptr;
       }
-    } else {
-      // Virtual register uses are always safe to sink.
-      if (MO.isUse())
-        continue;
-
-      // If it's not safe to move defs of the register class, then abort.
+    } else if (MO.isDef()) {
       if (!TII->isSafeToMoveRegClassDefs(MRI->getRegClass(Reg)))
         return nullptr;
+      if (!MRI->hasOneDef(Reg))
+        HasNonSSADef = true;
+      if (!llvm::is_contained(VRegDefs, Reg))
+        VRegDefs.push_back(Reg);
+    }
+  }
 
-      // Virtual register defs can only be sunk if all their uses are in blocks
-      // dominated by one of the successors.
+  if (VRegDefs.empty())
+    return nullptr;
+
+  auto IsLegalTargetBlock = [&](MachineBasicBlock *Target) {
+    return Target != MBB && !Target->isEHPad() &&
+           !Target->isInlineAsmBrIndirectTarget() &&
+           TII->isSafeToSink(MI, Target, CI);
+  };
+
+  // Fallback for non-SSA multi-def virtual registers where MBB may not
+  // dominate every use of the register.
+  if (HasNonSSADef) {
+    MachineBasicBlock *SuccToSinkTo = nullptr;
+    for (Register Reg : VRegDefs) {
       if (SuccToSinkTo) {
-        // If a previous operand picked a block to sink to, then this operand
-        // must be sinkable to the same block.
         bool LocalUse = false;
         if (!AllUsesDominatedByBlock(Reg, SuccToSinkTo, MBB, BreakPHIEdge,
                                      LocalUse))
           return nullptr;
-
         continue;
       }
-
-      // Otherwise, we should look at all the successors and decide which one
-      // we should sink to. If we have reliable block frequency information
-      // (frequency != 0) available, give successors with smaller frequencies
-      // higher priority, otherwise prioritize smaller cycle depths.
       for (MachineBasicBlock *SuccBlock :
            GetAllSortedSuccessors(MI, MBB, AllSuccessors)) {
         bool LocalUse = false;
@@ -1466,39 +1497,243 @@ MachineSinking::FindSuccToSinkTo(MachineInstr &MI, MachineBasicBlock *MBB,
           break;
         }
         if (LocalUse)
-          // Def is used locally, it's never safe to move this def.
+          return nullptr;
+      }
+      if (!SuccToSinkTo ||
+          !isProfitableToSinkTo(Reg, MI, MBB, SuccToSinkTo, AllSuccessors))
+        return nullptr;
+    }
+    return (SuccToSinkTo && IsLegalTargetBlock(SuccToSinkTo)) ? SuccToSinkTo
+                                                              : nullptr;
+  }
+
+  // Compute the nearest common dominator (LCA) of all reachable uses across
+  // all virtual registers defined by MI.
+  MachineBasicBlock *LCA = nullptr;
+  Register NonPHIUseReg;
+  MachineBasicBlock *CommonPHIBB = nullptr;
+  bool CanBreakPHIEdge = true;
+
+  for (Register Reg : VRegDefs) {
+    if (MRI->use_nodbg_empty(Reg))
+      continue;
+
+    MachineBasicBlock *RegPHIBB = nullptr;
+    bool RegAllSamePHI = true;
+    MachineBasicBlock *RegLCA = nullptr;
+    bool RegHasNonPHIUseInLCA = false;
+
+    for (MachineOperand &MO : MRI->use_nodbg_operands(Reg)) {
+      MachineInstr *UseInst = MO.getParent();
+      MachineBasicBlock *UseBlock = UseInst->getParent();
+      if (UseInst->isPHI()) {
+        MachineBasicBlock *IncomingBB =
+            UseInst->getOperand(MO.getOperandNo() + 1).getMBB();
+        if (IncomingBB == MBB && (!RegPHIBB || RegPHIBB == UseBlock))
+          RegPHIBB = UseBlock;
+        else
+          RegAllSamePHI = false;
+        UseBlock = IncomingBB;
+      } else {
+        RegAllSamePHI = false;
+        if (UseBlock == MBB)
           return nullptr;
       }
 
-      // If we couldn't find a block to sink to, ignore this instruction.
-      if (!SuccToSinkTo)
-        return nullptr;
-      if (!isProfitableToSinkTo(Reg, MI, MBB, SuccToSinkTo, AllSuccessors))
+      if (!DT->isReachableFromEntry(UseBlock))
+        continue;
+      if (!RegLCA) {
+        RegLCA = UseBlock;
+        RegHasNonPHIUseInLCA = !UseInst->isPHI();
+      } else {
+        MachineBasicBlock *NewLCA =
+            DT->findNearestCommonDominator(RegLCA, UseBlock);
+        RegHasNonPHIUseInLCA = (NewLCA == RegLCA && RegHasNonPHIUseInLCA) ||
+                               (NewLCA == UseBlock && !UseInst->isPHI());
+        RegLCA = NewLCA;
+      }
+    }
+
+    if (RegAllSamePHI && RegPHIBB) {
+      if (!CommonPHIBB)
+        CommonPHIBB = RegPHIBB;
+      else if (CommonPHIBB != RegPHIBB)
+        CanBreakPHIEdge = false;
+      continue;
+    }
+
+    CanBreakPHIEdge = false;
+    if (!RegLCA)
+      continue;
+    if (RegLCA == MBB || !DT->dominates(MBB, RegLCA))
+      return nullptr;
+
+    if (!LCA) {
+      LCA = RegLCA;
+      NonPHIUseReg = RegHasNonPHIUseInLCA ? Reg : Register();
+    } else {
+      MachineBasicBlock *NewLCA = DT->findNearestCommonDominator(LCA, RegLCA);
+      if (NewLCA != LCA)
+        NonPHIUseReg = Register();
+      if (NewLCA == RegLCA && RegHasNonPHIUseInLCA && !NonPHIUseReg)
+        NonPHIUseReg = Reg;
+      LCA = NewLCA;
+      if (LCA == MBB)
         return nullptr;
     }
   }
 
-  // It is not possible to sink an instruction into its own block.  This can
-  // happen with cycles.
-  if (MBB == SuccToSinkTo)
+  // If any def only has PHI uses incoming from MBB, we must break that PHI
+  // edge to sink MI.
+  if (CommonPHIBB) {
+    if ((!CanBreakPHIEdge && (!LCA || !DT->dominates(CommonPHIBB, LCA))) ||
+        !IsLegalTargetBlock(CommonPHIBB) ||
+        !isProfitableToSinkTo(VRegDefs[0], MI, MBB, CommonPHIBB, AllSuccessors))
+      return nullptr;
+    BreakPHIEdge = true;
+    return CommonPHIBB;
+  }
+
+  // Dead defs (no reachable non-debug uses): sink into the coldest successor.
+  if (!LCA) {
+    for (MachineBasicBlock *SuccBlock :
+         GetAllSortedSuccessors(MI, MBB, AllSuccessors)) {
+      if (IsLegalTargetBlock(SuccBlock) &&
+          isProfitableToSinkTo(VRegDefs[0], MI, MBB, SuccBlock, AllSuccessors))
+        return SuccBlock;
+    }
+    return nullptr;
+  }
+
+  MachineBasicBlock *Cand = LCA;
+  bool DontMoveAcrossStore = true;
+  bool CanCrossStores =
+      !MI.mayLoadOrStore() || MI.isSafeToMove(DontMoveAcrossStore);
+
+  // Store-sensitive loads cannot jump past blocks that may contain stores
+  // without checking paths; clamp to MBB's immediate dominator child unless
+  // hasStoreBetween proves the straight-line region store-free.
+  if (!CanCrossStores && DT->getNode(Cand)->getIDom()->getBlock() != MBB &&
+      (!PDT->dominates(Cand, MBB) || hasStoreBetween(MBB, Cand, MI))) {
+    MachineBasicBlock *Next = nullptr;
+    for (MachineBasicBlock *Succ : MBB->successors()) {
+      if (DT->getNode(Succ)->getIDom()->getBlock() == MBB &&
+          DT->dominates(Succ, Cand)) {
+        Next = Succ;
+        break;
+      }
+    }
+    if (!Next) {
+      for (MachineDomTreeNode *DTChild : DT->getNode(MBB)->children()) {
+        if (DT->dominates(DTChild->getBlock(), Cand)) {
+          Next = DTChild->getBlock();
+          break;
+        }
+      }
+    }
+    Cand = Next;
+    NonPHIUseReg = Register();
+  }
+
+  // Do not sink into a cycle that does not already contain MBB; step out to
+  // the cycle header (if MBB can split a preheader edge) or the preheader.
+  if (Cand) {
+    if (CycleRef C = CI->getCycle(Cand); C && !CI->contains(C, MBB)) {
+      while (CycleRef P = CI->getParentCycle(C)) {
+        if (CI->contains(P, MBB))
+          break;
+        C = P;
+      }
+      if (CI->isReducible(C)) {
+        MachineBasicBlock *Header = CI->getHeader(C);
+        if (Cand != Header) {
+          Cand = Header;
+          NonPHIUseReg = Register();
+        }
+        if (!MBB->isSuccessor(Header)) {
+          Cand = DT->getNode(Header)->getIDom()->getBlock();
+          NonPHIUseReg = Register();
+        }
+      } else {
+        while (Cand != MBB && CI->contains(C, Cand)) {
+          Cand = DT->getNode(Cand)->getIDom()->getBlock();
+          NonPHIUseReg = Register();
+        }
+      }
+    }
+  }
+
+  // If LCA itself has a non-PHI use and post-dominates its immediate dominator
+  // without profitably shortening a cycle live range, step up to its IDom.
+  if (Cand == LCA && NonPHIUseReg && Cand != MBB) {
+    MachineBasicBlock *IDom = DT->getNode(Cand)->getIDom()->getBlock();
+    if (IDom != MBB &&
+        !isProfitableToSinkTo(NonPHIUseReg, MI, IDom, Cand, AllSuccessors))
+      Cand = IDom;
+  }
+
+  // Walk up the dominator tree until we find a legal insertion block.
+  while (Cand && Cand != MBB) {
+    bool Legal =
+        IsLegalTargetBlock(Cand) &&
+        llvm::none_of(MI.all_defs(), [&](const MachineOperand &MO) {
+          return MO.getReg().isPhysical() && Cand->isLiveIn(MO.getReg());
+        });
+    bool NeedsBreak = false;
+    if (Legal && Cand->pred_size() > 1) {
+      bool Store = CanCrossStores ? false : hasStoreBetween(MBB, Cand, MI);
+      NeedsBreak =
+          !MI.isSafeToMove(Store) || !DT->dominates(MBB, Cand) ||
+          (CI->getCycle(Cand) && (!CI->isReducible(CI->getCycle(Cand)) ||
+                                  CI->getHeader(CI->getCycle(Cand)) == Cand));
+      if (NeedsBreak && !MBB->isSuccessor(Cand))
+        Legal = false;
+    }
+    if (Legal && !NeedsBreak) {
+      MachineBasicBlock::iterator InsertPos =
+          Cand->SkipPHIsAndLabels(Cand->begin());
+      if (blockPrologueInterferes(Cand, InsertPos, MI, TRI, TII, MRI))
+        Legal = false;
+    }
+    if (Legal)
+      break;
+    Cand = DT->getNode(Cand)->getIDom()->getBlock();
+  }
+
+  if (!Cand || Cand == MBB)
     return nullptr;
 
-  // It's not safe to sink instructions to EH landing pad. Control flow into
-  // landing pad is implicitly defined.
-  if (SuccToSinkTo && SuccToSinkTo->isEHPad())
+  // If MBB has a backedge to an ancestor block (which also dominates Cand),
+  // respect the frequency / cycle-depth successor priority before sinking out
+  // along a non-preferred edge (e.g. under optsize or -machine-sink-bfi=false).
+  if (CI->getCycle(MBB)) {
+    auto HasHigherPriority = [&](const MachineBasicBlock *L,
+                                 const MachineBasicBlock *R) {
+      uint64_t LHSFreq = MBFI ? MBFI->getBlockFreq(L).getFrequency() : 0;
+      uint64_t RHSFreq = MBFI ? MBFI->getBlockFreq(R).getFrequency() : 0;
+      if (llvm::shouldOptimizeForSize(MBB, PSI, MBFI) || (!LHSFreq && !RHSFreq))
+        return CI->getCycleDepth(L) < CI->getCycleDepth(R);
+      return LHSFreq < RHSFreq;
+    };
+    bool SeenCand = false;
+    for (MachineBasicBlock *Succ : MBB->successors()) {
+      if (Succ == Cand) {
+        SeenCand = true;
+        continue;
+      }
+      if (!DT->dominates(Succ, MBB))
+        continue;
+      if (SeenCand ? HasHigherPriority(Succ, Cand)
+                   : !HasHigherPriority(Cand, Succ))
+        return nullptr;
+    }
+  }
+
+  Register ProfReg = NonPHIUseReg ? NonPHIUseReg : VRegDefs[0];
+  if (!isProfitableToSinkTo(ProfReg, MI, MBB, Cand, AllSuccessors))
     return nullptr;
 
-  // It ought to be okay to sink instructions into an INLINEASM_BR target, but
-  // only if we make sure that MI occurs _before_ an INLINEASM_BR instruction in
-  // the source block (which this code does not yet do). So for now, forbid
-  // doing so.
-  if (SuccToSinkTo && SuccToSinkTo->isInlineAsmBrIndirectTarget())
-    return nullptr;
-
-  if (SuccToSinkTo && !TII->isSafeToSink(MI, SuccToSinkTo, CI))
-    return nullptr;
-
-  return SuccToSinkTo;
+  return Cand;
 }
 
 /// Return true if MI is likely to be usable as a memory operation by the
@@ -1940,65 +2175,6 @@ bool MachineSinking::SinkInstruction(MachineInstr &MI, bool &SawStore,
     return false;
   }
 
-  // For side-effect-free single-def instructions, try jumping directly to the
-  // nearest common dominator of all uses instead of splicing one block at a
-  // time down deep dominator chains.
-  bool DontMoveAcrossStore = true;
-  if (!MI.isCopy() && !MI.mayLoadOrStore() &&
-      MI.isSafeToMove(DontMoveAcrossStore) && !TII->isBasicBlockPrologue(MI) &&
-      !CI->getCycle(ParentBlock)) {
-    Register DefReg;
-    for (const MachineOperand &MO : MI.all_defs()) {
-      if (MO.getReg().isVirtual()) {
-        DefReg = (!DefReg && MO.getSubReg() == 0) ? MO.getReg() : Register();
-        if (!DefReg)
-          break;
-      }
-    }
-    if (DefReg && MRI->hasOneDef(DefReg) && !SeenDbgUsers.contains(DefReg)) {
-      MachineBasicBlock *Cand = nullptr;
-      bool HasNonPHIUseInCand = false;
-      for (MachineOperand &MO : MRI->use_nodbg_operands(DefReg)) {
-        MachineInstr *UseMI = MO.getParent();
-        MachineBasicBlock *UseBB =
-            UseMI->isPHI() ? UseMI->getOperand(MO.getOperandNo() + 1).getMBB()
-                           : UseMI->getParent();
-        if (!DT->isReachableFromEntry(UseBB))
-          continue;
-        if (!Cand) {
-          Cand = UseBB;
-          HasNonPHIUseInCand = !UseMI->isPHI();
-        } else {
-          MachineBasicBlock *NewCand =
-              DT->findNearestCommonDominator(Cand, UseBB);
-          HasNonPHIUseInCand = (NewCand == Cand && HasNonPHIUseInCand) ||
-                               (NewCand == UseBB && !UseMI->isPHI());
-          Cand = NewCand;
-        }
-      }
-      if (Cand && Cand != SuccToSinkTo && DT->dominates(SuccToSinkTo, Cand)) {
-        if (HasNonPHIUseInCand) {
-          MachineBasicBlock *CandIDom =
-              DT->getNode(Cand)->getIDom()->getBlock();
-          if (PDT->dominates(Cand, CandIDom))
-            Cand = CandIDom;
-        }
-        if (DT->getNode(Cand)->getLevel() >=
-                DT->getNode(SuccToSinkTo)->getLevel() + 8 &&
-            !CI->getCycle(Cand) && !Cand->isEHPad() &&
-            !Cand->isInlineAsmBrIndirectTarget() &&
-            TII->isSafeToSink(MI, Cand, CI) &&
-            llvm::none_of(MI.all_defs(), [&](const MachineOperand &MO) {
-              return MO.getReg().isPhysical() && Cand->isLiveIn(MO.getReg());
-            })) {
-          auto CandPos = Cand->SkipPHIsAndLabels(Cand->begin());
-          if (!blockPrologueInterferes(Cand, CandPos, MI, TRI, TII, MRI))
-            SuccToSinkTo = Cand;
-        }
-      }
-    }
-  }
-
   // Determine where to insert into. Skip phi nodes.
   MachineBasicBlock::iterator InsertPos =
       SuccToSinkTo->SkipPHIsAndLabels(SuccToSinkTo->begin());
@@ -2033,10 +2209,24 @@ bool MachineSinking::SinkInstruction(MachineInstr &MI, bool &SawStore,
   }
 
   // After sinking, some debug users may not be dominated any more. If possible,
-  // copy-propagate their operands. As it's expensive, don't do this if there's
-  // no debuginfo in the program.
-  if (MI.getMF()->getFunction().getSubprogram() && MI.isCopy())
-    SalvageUnsunkDebugUsersOfCopy(MI, SuccToSinkTo);
+  // copy-propagate their operands, or mark bypassed debug uses undef. As it's
+  // expensive, don't do this if there's no debuginfo in the program.
+  if (MI.getMF()->getFunction().getSubprogram()) {
+    if (MI.isCopy()) {
+      SalvageUnsunkDebugUsersOfCopy(MI, SuccToSinkTo);
+    } else {
+      for (auto &MO : MI.all_defs()) {
+        if (!MO.getReg().isVirtual())
+          continue;
+        for (MachineInstr &User :
+             llvm::make_early_inc_range(MRI->use_instructions(MO.getReg()))) {
+          if (User.isDebugValue() && User.getParent() != ParentBlock &&
+              !DT->dominates(SuccToSinkTo, User.getParent()))
+            User.setDebugValueUndef();
+        }
+      }
+    }
+  }
 
   performSink(MI, *SuccToSinkTo, InsertPos, DbgUsersToSink);
 
