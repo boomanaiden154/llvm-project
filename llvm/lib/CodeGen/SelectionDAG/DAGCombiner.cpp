@@ -10088,8 +10088,9 @@ static SDValue stripTruncAndExt(SDValue Value) {
 /// =>
 ///  *((i32)p) = BSWAP(val);
 SDValue DAGCombiner::mergeTruncStores(StoreSDNode *N) {
-  // The matching looks for "store (trunc x)" patterns that appear early but are
-  // likely to be replaced by truncating store nodes during combining.
+  // The matching looks for "store (trunc x)" or truncstore patterns before
+  // operation legalization, where introduced bswaps/rotates can still be
+  // legalized.
   // TODO: If there is evidence that running this later would help, this
   //       limitation could be removed. Legality checks may need to be added
   //       for the created store and optional bswap/rotate.
@@ -10103,59 +10104,28 @@ SDValue DAGCombiner::mergeTruncStores(StoreSDNode *N) {
       !N->isSimple() || N->isIndexed())
     return SDValue();
 
-  // Collect all of the stores in the chain, upto the maximum store width (i64).
-  SDValue Chain = N->getChain();
-  SmallVector<StoreSDNode *, 8> Stores = {N};
   unsigned NarrowNumBits = MemVT.getScalarSizeInBits();
   unsigned MaxWideNumBits = 64;
   unsigned MaxStores = MaxWideNumBits / NarrowNumBits;
-  while (auto *Store = dyn_cast<StoreSDNode>(Chain)) {
-    // All stores must be the same size to ensure that we are writing all of the
-    // bytes in the wide value.
-    // This store should have exactly one use as a chain operand for another
-    // store in the merging set. If there are other chain uses, then the
-    // transform may not be safe because order of loads/stores outside of this
-    // set may not be preserved.
-    // TODO: We could allow multiple sizes by tracking each stored byte.
-    // Keep a differently-sized store in the incoming chain and try to merge
-    // the stores collected after it.
-    if (Store->getMemoryVT() != MemVT)
-      break;
-    if (!Store->isSimple() || Store->isIndexed() || !Store->hasOneUse())
-      return SDValue();
-    Stores.push_back(Store);
-    Chain = Store->getChain();
-    if (MaxStores < Stores.size())
-      return SDValue();
-  }
-  // There is no reason to continue if we do not have at least a pair of stores.
-  if (Stores.size() < 2)
-    return SDValue();
 
-  // Handle simple types only.
-  LLVMContext &Context = *DAG.getContext();
-  unsigned NumStores = Stores.size();
-  unsigned WideNumBits = NumStores * NarrowNumBits;
-  if (WideNumBits != 16 && WideNumBits != 32 && WideNumBits != 64)
-    return SDValue();
+  auto extractWideValAndChunk = [&](StoreSDNode *Store, SDValue &WideVal,
+                                    int64_t &ChunkOffset) -> bool {
+    if (Store->getMemoryVT() != MemVT || !Store->isSimple() ||
+        Store->isIndexed())
+      return false;
 
-  // Check if all bytes of the source value that we are looking at are stored
-  // to the same base address. Collect offsets from Base address into OffsetMap.
-  SDValue SourceValue;
-  SmallVector<int64_t, 8> OffsetMap(NumStores, INT64_MAX);
-  int64_t FirstOffset = INT64_MAX;
-  StoreSDNode *FirstStore = nullptr;
-  std::optional<BaseIndexOffset> Base;
-  for (auto *Store : Stores) {
-    // All the stores store different parts of the CombinedValue. A truncate is
-    // required to get the partial value.
-    SDValue Trunc = Store->getValue();
-    if (Trunc.getOpcode() != ISD::TRUNCATE)
-      return SDValue();
+    WideVal = Store->getValue();
+    if (!Store->isTruncatingStore()) {
+      if (WideVal.getOpcode() != ISD::TRUNCATE)
+        return false;
+      WideVal = WideVal.getOperand(0);
+    }
+    if (!WideVal.getValueType().isScalarInteger())
+      return false;
+
     // Other than the first/last part, a shift operation is required to get the
     // offset.
-    int64_t Offset = 0;
-    SDValue WideVal = Trunc.getOperand(0);
+    ChunkOffset = 0;
     if ((WideVal.getOpcode() == ISD::SRL || WideVal.getOpcode() == ISD::SRA) &&
         isa<ConstantSDNode>(WideVal.getOperand(1))) {
       // The shift amount must be a constant multiple of the narrow type.
@@ -10166,124 +10136,327 @@ SDValue DAGCombiner::mergeTruncStores(StoreSDNode *N) {
       // store z, ...
       uint64_t ShiftAmtC = WideVal.getConstantOperandVal(1);
       if (ShiftAmtC % NarrowNumBits != 0)
-        return SDValue();
+        return false;
 
       // Make sure we aren't reading bits that are shifted in.
       if (ShiftAmtC > WideVal.getScalarValueSizeInBits() - NarrowNumBits)
-        return SDValue();
+        return false;
 
-      Offset = ShiftAmtC / NarrowNumBits;
+      ChunkOffset = ShiftAmtC / NarrowNumBits;
       WideVal = WideVal.getOperand(0);
     }
+    return ChunkOffset >= 0 && ChunkOffset < MaxStores;
+  };
 
-    // Stores must share the same source value with different offsets.
-    if (!SourceValue)
-      SourceValue = WideVal;
-    else if (SourceValue != WideVal) {
-      // Truncate and extends can be stripped to see if the values are related.
-      if (stripTruncAndExt(SourceValue) != WideVal &&
-          stripTruncAndExt(WideVal) != SourceValue)
-        return SDValue();
-
-      if (WideVal.getScalarValueSizeInBits() >
-          SourceValue.getScalarValueSizeInBits())
-        SourceValue = WideVal;
-
-      // Give up if the source value type is smaller than the store size.
-      if (SourceValue.getScalarValueSizeInBits() < WideNumBits)
-        return SDValue();
-    }
-
-    // Stores must share the same base address.
-    BaseIndexOffset Ptr = BaseIndexOffset::match(Store, DAG);
-    int64_t ByteOffsetFromBase = 0;
-    if (!Base)
-      Base = Ptr;
-    else if (!Base->equalBaseIndex(Ptr, DAG, ByteOffsetFromBase))
-      return SDValue();
-
-    // Remember the first store.
-    if (ByteOffsetFromBase < FirstOffset) {
-      FirstStore = Store;
-      FirstOffset = ByteOffsetFromBase;
-    }
-    // Map the offset in the store and the offset in the combined value, and
-    // early return if it has been set before.
-    if (Offset < 0 || Offset >= NumStores || OffsetMap[Offset] != INT64_MAX)
-      return SDValue();
-    OffsetMap[Offset] = ByteOffsetFromBase;
-  }
-
-  EVT WideVT = EVT::getIntegerVT(Context, WideNumBits);
-
-  assert(FirstOffset != INT64_MAX && "First byte offset must be set");
-  assert(FirstStore && "First store must be set");
-
-  // Check that a store of the wide type is both allowed and fast on the target
-  const DataLayout &Layout = DAG.getDataLayout();
-  unsigned Fast = 0;
-  bool Allowed = TLI.allowsMemoryAccess(Context, Layout, WideVT,
-                                        *FirstStore->getMemOperand(), &Fast);
-  if (!Allowed || !Fast)
+  SDValue NWideVal;
+  int64_t NChunkOffset = 0;
+  if (!extractWideValAndChunk(N, NWideVal, NChunkOffset))
     return SDValue();
 
-  // Check if the pieces of the value are going to the expected places in memory
-  // to merge the stores.
-  auto checkOffsets = [&](bool MatchLittleEndian) {
-    if (MatchLittleEndian) {
-      for (unsigned i = 0; i != NumStores; ++i)
-        if (OffsetMap[i] != i * (NarrowNumBits / 8) + FirstOffset)
-          return false;
-    } else { // MatchBigEndian by reversing loop counter.
-      for (unsigned i = 0, j = NumStores - 1; i != NumStores; ++i, --j)
-        if (OffsetMap[j] != i * (NarrowNumBits / 8) + FirstOffset)
-          return false;
+  BaseIndexOffset Base = BaseIndexOffset::match(N, DAG);
+  if (!Base.getBase().getNode() || Base.getBase().isUndef() ||
+      !Base.hasValidOffset())
+    return SDValue();
+
+  LLVMContext &Context = *DAG.getContext();
+  const DataLayout &Layout = DAG.getDataLayout();
+
+  auto tryMergeGroup = [&](ArrayRef<StoreSDNode *> Stores,
+                           bool IsLinearChain) -> SDValue {
+    unsigned NumStores = Stores.size();
+    unsigned WideNumBits = NumStores * NarrowNumBits;
+    if (WideNumBits != 16 && WideNumBits != 32 && WideNumBits != 64)
+      return SDValue();
+
+    // Check if all bytes of the source value that we are looking at are stored
+    // to the same base address. Collect offsets from Base address into
+    // OffsetMap.
+    SDValue SourceValue;
+    SmallVector<int64_t, 8> OffsetMap(NumStores, INT64_MAX);
+    int64_t FirstOffset = INT64_MAX;
+    StoreSDNode *FirstStore = nullptr;
+    for (auto *Store : Stores) {
+      if (Store != N && (Store->getAddressSpace() != N->getAddressSpace() ||
+                         !TLI.areTwoSDNodeTargetMMOFlagsMergeable(*N, *Store)))
+        return SDValue();
+
+      SDValue WideVal;
+      int64_t Offset = 0;
+      if (!extractWideValAndChunk(Store, WideVal, Offset))
+        return SDValue();
+
+      // Stores must share the same source value with different offsets.
+      if (!SourceValue) {
+        SourceValue = WideVal;
+      } else if (SourceValue != WideVal) {
+        // Truncate and extends can be stripped to see if the values are
+        // related.
+        if (stripTruncAndExt(SourceValue) != WideVal &&
+            stripTruncAndExt(WideVal) != SourceValue)
+          return SDValue();
+
+        if (WideVal.getScalarValueSizeInBits() >
+            SourceValue.getScalarValueSizeInBits())
+          SourceValue = WideVal;
+      }
+
+      // Stores must share the same base address.
+      int64_t ByteOffsetFromBase = 0;
+      if (Store != N) {
+        BaseIndexOffset Ptr = BaseIndexOffset::match(Store, DAG);
+        if (!Base.equalBaseIndex(Ptr, DAG, ByteOffsetFromBase))
+          return SDValue();
+      }
+
+      // Remember the first store.
+      if (ByteOffsetFromBase < FirstOffset) {
+        FirstStore = Store;
+        FirstOffset = ByteOffsetFromBase;
+      }
+      // Map the offset in the store and the offset in the combined value, and
+      // early return if it has been set before.
+      if (Offset < 0 || Offset >= NumStores || OffsetMap[Offset] != INT64_MAX)
+        return SDValue();
+      OffsetMap[Offset] = ByteOffsetFromBase;
     }
+
+    // Give up if the source value type is smaller than the store size.
+    if (SourceValue.getScalarValueSizeInBits() < WideNumBits)
+      return SDValue();
+
+    EVT WideVT = EVT::getIntegerVT(Context, WideNumBits);
+
+    assert(FirstOffset != INT64_MAX && "First byte offset must be set");
+    assert(FirstStore && "First store must be set");
+
+    // Check that a store of the wide type is both allowed and fast on the
+    // target.
+    unsigned Fast = 0;
+    bool Allowed = TLI.allowsMemoryAccess(Context, Layout, WideVT,
+                                          *FirstStore->getMemOperand(), &Fast);
+    if (!Allowed || !Fast)
+      return SDValue();
+
+    // Check if the pieces of the value are going to the expected places in
+    // memory to merge the stores.
+    auto checkOffsets = [&](bool MatchLittleEndian) {
+      if (MatchLittleEndian) {
+        for (unsigned i = 0; i != NumStores; ++i)
+          if (OffsetMap[i] != i * (NarrowNumBits / 8) + FirstOffset)
+            return false;
+      } else { // MatchBigEndian by reversing loop counter.
+        for (unsigned i = 0, j = NumStores - 1; i != NumStores; ++i, --j)
+          if (OffsetMap[j] != i * (NarrowNumBits / 8) + FirstOffset)
+            return false;
+      }
+      return true;
+    };
+
+    // Check if the offsets line up for the native data layout of this target.
+    bool NeedBswap = false;
+    bool NeedRotate = false;
+    if (!checkOffsets(Layout.isLittleEndian())) {
+      // Special-case: check if byte offsets line up for the opposite endian.
+      if (NarrowNumBits == 8 && checkOffsets(Layout.isBigEndian()))
+        NeedBswap = true;
+      else if (NumStores == 2 && checkOffsets(Layout.isBigEndian()))
+        NeedRotate = true;
+      else
+        return SDValue();
+    }
+
+    SDLoc DL(N);
+    if (WideVT != SourceValue.getValueType()) {
+      assert(SourceValue.getValueType().getScalarSizeInBits() > WideNumBits &&
+             "Unexpected store value to merge");
+      SourceValue = DAG.getNode(ISD::TRUNCATE, DL, WideVT, SourceValue);
+    }
+
+    // Before legalize we can introduce illegal bswaps/rotates which will be
+    // later converted to an explicit bswap sequence. This way we end up with a
+    // single store and byte shuffling instead of several stores and byte
+    // shuffling.
+    if (NeedBswap) {
+      SourceValue = DAG.getNode(ISD::BSWAP, DL, WideVT, SourceValue);
+    } else if (NeedRotate) {
+      assert(WideNumBits % 2 == 0 && "Unexpected type for rotate");
+      SDValue RotAmt = DAG.getConstant(WideNumBits / 2, DL, WideVT);
+      SourceValue = DAG.getNode(ISD::ROTR, DL, WideVT, SourceValue, RotAmt);
+    }
+
+    const MDNode *MemCacheHint = getCommonMemCacheHint(Stores);
+
+    SDValue NewChain;
+    if (IsLinearChain) {
+      NewChain = Stores.back()->getChain();
+    } else {
+      SmallVector<SDValue, 8> Chains;
+      for (StoreSDNode *S : Stores) {
+        SDValue C = S->getChain();
+        if (!is_contained(Chains, C))
+          Chains.push_back(C);
+      }
+      NewChain =
+          Chains.size() == 1 ? Chains[0] : DAG.getTokenFactor(DL, Chains);
+    }
+
+    SDValue NewStore =
+        DAG.getStore(NewChain, DL, SourceValue, FirstStore->getBasePtr(),
+                     FirstStore->getPointerInfo(), FirstStore->getAlign(),
+                     MachineMemOperand::MONone,
+                     MMOMetadata(AAMDNodes(), nullptr, MemCacheHint));
+
+    if (!IsLinearChain) {
+      for (StoreSDNode *S : Stores)
+        if (S != N)
+          CombineTo(S, NewStore);
+      if (NewChain.getOpcode() == ISD::TokenFactor)
+        AddToWorklist(NewChain.getNode());
+    }
+
+    // For a linear chain, rely on other DAG combine rules to remove the other
+    // individual stores.
+    DAG.ReplaceAllUsesWith(N, NewStore.getNode());
+    return NewStore;
+  };
+
+  // Collect all of the stores in the linear chain, up to the maximum store
+  // width (i64).
+  SDValue Chain = N->getChain();
+  SmallVector<StoreSDNode *, 8> ChainStores = {N};
+  while (ChainStores.size() < MaxStores) {
+    auto *Store = dyn_cast<StoreSDNode>(Chain);
+    if (!Store)
+      break;
+    // All stores must be the same size to ensure that we are writing all of the
+    // bytes in the wide value.
+    // This store should have exactly one use as a chain operand for another
+    // store in the merging set. If there are other chain uses, then the
+    // transform may not be safe because order of loads/stores outside of this
+    // set may not be preserved.
+    // TODO: We could allow multiple sizes by tracking each stored byte.
+    // Keep a non-mergeable store in the incoming chain and try to merge the
+    // stores collected after it.
+    if (Store->getMemoryVT() != MemVT || !Store->isSimple() ||
+        Store->isIndexed() || !Store->hasOneUse())
+      break;
+    ChainStores.push_back(Store);
+    Chain = Store->getChain();
+  }
+
+  for (unsigned NumStores : {8u, 4u, 2u}) {
+    if (NumStores > ChainStores.size() || NumStores <= NChunkOffset)
+      continue;
+    if (SDValue Res = tryMergeGroup(ArrayRef(ChainStores).take_front(NumStores),
+                                    /*IsLinearChain=*/true))
+      return Res;
+  }
+
+  // Also look across sibling stores in a TokenFactor (for example, after
+  // parallelizeChainedStores has flattened a chain of disjoint stores).
+  // Requiring every merged store's sole user to be the same TokenFactor
+  // guarantees no intervening memory uses and no DAG cycles.
+  if (!N->hasOneUse())
+    return SDValue();
+  SDUse &NUse = *N->use_begin();
+  SDNode *TF = NUse.getUser();
+  if (TF->getOpcode() != ISD::TokenFactor)
+    return SDValue();
+
+  unsigned NOpIdx = NUse.getOperandNo();
+  unsigned NumTFOps = TF->getNumOperands();
+  const unsigned MaxTFScan = 64;
+  unsigned StartIdx = 0;
+  unsigned EndIdx = NumTFOps;
+  if (NumTFOps > MaxTFScan) {
+    StartIdx = NOpIdx > MaxTFScan / 2 ? NOpIdx - MaxTFScan / 2 : 0;
+    if (StartIdx + MaxTFScan > NumTFOps)
+      StartIdx = NumTFOps - MaxTFScan;
+    EndIdx = StartIdx + MaxTFScan;
+  }
+
+  StoreSDNode *LECandidates[8] = {};
+  StoreSDNode *BECandidates[8] = {};
+  uint8_t LEDupMask = 0;
+  uint8_t BEDupMask = 0;
+  LECandidates[NChunkOffset] = N;
+  BECandidates[NChunkOffset] = N;
+
+  int64_t NarrowBytes = NarrowNumBits / 8;
+  for (unsigned Idx = StartIdx; Idx != EndIdx; ++Idx) {
+    SDValue Op = TF->getOperand(Idx);
+    if (Op.getNode() == N)
+      continue;
+    auto *Store = dyn_cast<StoreSDNode>(Op);
+    if (!Store || !Store->hasOneUse())
+      continue;
+    if (Store->getAddressSpace() != N->getAddressSpace() ||
+        !TLI.areTwoSDNodeTargetMMOFlagsMergeable(*N, *Store))
+      continue;
+
+    SDValue SWideVal;
+    int64_t SChunkOffset = 0;
+    if (!extractWideValAndChunk(Store, SWideVal, SChunkOffset) ||
+        SChunkOffset == NChunkOffset)
+      continue;
+
+    if (SWideVal != NWideVal && stripTruncAndExt(NWideVal) != SWideVal &&
+        stripTruncAndExt(SWideVal) != NWideVal)
+      continue;
+
+    BaseIndexOffset Ptr = BaseIndexOffset::match(Store, DAG);
+    int64_t ByteOffset = 0;
+    if (!Base.equalBaseIndex(Ptr, DAG, ByteOffset))
+      continue;
+
+    uint8_t Bit = 1u << SChunkOffset;
+    if (ByteOffset == (SChunkOffset - NChunkOffset) * NarrowBytes) {
+      if (LECandidates[SChunkOffset] || (LEDupMask & Bit)) {
+        LECandidates[SChunkOffset] = nullptr;
+        LEDupMask |= Bit;
+      } else {
+        LECandidates[SChunkOffset] = Store;
+      }
+    }
+    if (ByteOffset == (NChunkOffset - SChunkOffset) * NarrowBytes) {
+      if (BECandidates[SChunkOffset] || (BEDupMask & Bit)) {
+        BECandidates[SChunkOffset] = nullptr;
+        BEDupMask |= Bit;
+      } else {
+        BECandidates[SChunkOffset] = Store;
+      }
+    }
+  }
+
+  StoreSDNode **NativeCandidates =
+      Layout.isLittleEndian() ? LECandidates : BECandidates;
+  StoreSDNode **OppositeCandidates =
+      Layout.isLittleEndian() ? BECandidates : LECandidates;
+
+  auto hasAllChunks = [](StoreSDNode **Arr, unsigned Count) {
+    for (unsigned I = 0; I != Count; ++I)
+      if (!Arr[I])
+        return false;
     return true;
   };
 
-  // Check if the offsets line up for the native data layout of this target.
-  bool NeedBswap = false;
-  bool NeedRotate = false;
-  if (!checkOffsets(Layout.isLittleEndian())) {
-    // Special-case: check if byte offsets line up for the opposite endian.
-    if (NarrowNumBits == 8 && checkOffsets(Layout.isBigEndian()))
-      NeedBswap = true;
-    else if (NumStores == 2 && checkOffsets(Layout.isBigEndian()))
-      NeedRotate = true;
-    else
-      return SDValue();
+  for (unsigned NumStores : {8u, 4u, 2u}) {
+    if (NumStores > MaxStores || NumStores <= NChunkOffset)
+      continue;
+    if (hasAllChunks(NativeCandidates, NumStores)) {
+      if (SDValue Res = tryMergeGroup(ArrayRef(NativeCandidates, NumStores),
+                                      /*IsLinearChain=*/false))
+        return Res;
+    }
+    if ((NarrowNumBits == 8 || NumStores == 2) &&
+        hasAllChunks(OppositeCandidates, NumStores)) {
+      if (SDValue Res = tryMergeGroup(ArrayRef(OppositeCandidates, NumStores),
+                                      /*IsLinearChain=*/false))
+        return Res;
+    }
   }
 
-  SDLoc DL(N);
-  if (WideVT != SourceValue.getValueType()) {
-    assert(SourceValue.getValueType().getScalarSizeInBits() > WideNumBits &&
-           "Unexpected store value to merge");
-    SourceValue = DAG.getNode(ISD::TRUNCATE, DL, WideVT, SourceValue);
-  }
-
-  // Before legalize we can introduce illegal bswaps/rotates which will be later
-  // converted to an explicit bswap sequence. This way we end up with a single
-  // store and byte shuffling instead of several stores and byte shuffling.
-  if (NeedBswap) {
-    SourceValue = DAG.getNode(ISD::BSWAP, DL, WideVT, SourceValue);
-  } else if (NeedRotate) {
-    assert(WideNumBits % 2 == 0 && "Unexpected type for rotate");
-    SDValue RotAmt = DAG.getConstant(WideNumBits / 2, DL, WideVT);
-    SourceValue = DAG.getNode(ISD::ROTR, DL, WideVT, SourceValue, RotAmt);
-  }
-
-  const MDNode *MemCacheHint = getCommonMemCacheHint(Stores);
-
-  SDValue NewStore =
-      DAG.getStore(Chain, DL, SourceValue, FirstStore->getBasePtr(),
-                   FirstStore->getPointerInfo(), FirstStore->getAlign(),
-                   MachineMemOperand::MONone,
-                   MMOMetadata(AAMDNodes(), nullptr, MemCacheHint));
-
-  // Rely on other DAG combine rules to remove the other individual stores.
-  DAG.ReplaceAllUsesWith(N, NewStore.getNode());
-  return NewStore;
+  return SDValue();
 }
 
 /// Match a pattern where a wide type scalar value is loaded by several narrow
