@@ -190,16 +190,6 @@ class MachineSinking {
   DenseMap<const MachineBasicBlock *, std::vector<unsigned>>
       CachedRegisterPressure;
 
-  struct BlockFastSinkInfo {
-    uint32_t DomDepth = 0;
-    uint32_t BadEnterCount = 0;
-    uint32_t LiveInCount = 0;
-    uint32_t SingleSuccCount = 0;
-  };
-
-  /// Dominator-tree prefix counts for O(1) multi-block sinking queries.
-  DenseMap<const MachineBasicBlock *, BlockFastSinkInfo> FastSinkInfo;
-
   bool EnableSinkAndFold;
 
 public:
@@ -218,11 +208,9 @@ public:
   void releaseMemory() {
     CEBCandidates.clear();
     CEMergeCandidates.clear();
-    FastSinkInfo.clear();
   }
 
 private:
-  std::pair<MachineBasicBlock *, bool> findFastSinkTarget(Register Reg) const;
   bool ProcessBlock(MachineBasicBlock &MBB);
   void ProcessDbgInst(MachineInstr &MI);
   bool isLegalToBreakCriticalEdge(MachineInstr &MI, MachineBasicBlock *From,
@@ -378,48 +366,6 @@ static bool blockPrologueInterferes(const MachineBasicBlock *BB,
   }
 
   return false;
-}
-
-std::pair<MachineBasicBlock *, bool>
-MachineSinking::findFastSinkTarget(Register Reg) const {
-  MachineBasicBlock *EffectiveNCD = nullptr;
-  MachineBasicBlock *NonPHINCD = nullptr;
-  bool HasNonPHIInNonPHINCD = false;
-
-  for (MachineOperand &MO : MRI->use_nodbg_operands(Reg)) {
-    MachineInstr *UseInst = MO.getParent();
-    MachineBasicBlock *UseBlock = UseInst->getParent();
-    MachineBasicBlock *EffectiveUseBlock = UseBlock;
-
-    if (UseInst->isPHI()) {
-      unsigned OpNo = MO.getOperandNo();
-      EffectiveUseBlock = UseInst->getOperand(OpNo + 1).getMBB();
-    } else if (DT->isReachableFromEntry(UseBlock)) {
-      if (!NonPHINCD) {
-        NonPHINCD = UseBlock;
-        HasNonPHIInNonPHINCD = true;
-      } else {
-        MachineBasicBlock *NewNCD =
-            DT->findNearestCommonDominator(NonPHINCD, UseBlock);
-        if (NewNCD == UseBlock)
-          HasNonPHIInNonPHINCD = true;
-        else if (NewNCD != NonPHINCD)
-          HasNonPHIInNonPHINCD = false;
-        NonPHINCD = NewNCD;
-      }
-    }
-
-    if (DT->isReachableFromEntry(EffectiveUseBlock)) {
-      EffectiveNCD =
-          EffectiveNCD
-              ? DT->findNearestCommonDominator(EffectiveNCD, EffectiveUseBlock)
-              : EffectiveUseBlock;
-    }
-  }
-
-  bool HasNonPHIUseInNCD =
-      NonPHINCD && NonPHINCD == EffectiveNCD && HasNonPHIInNonPHINCD;
-  return {EffectiveNCD, HasNonPHIUseInNCD};
 }
 
 bool MachineSinking::PerformTrivialForwardCoalescing(MachineInstr &MI,
@@ -884,46 +830,12 @@ bool MachineSinkingLegacy::runOnMachineFunction(MachineFunction &MF) {
 bool MachineSinking::run(MachineFunction &MF) {
   LLVM_DEBUG(dbgs() << "******** Machine Sinking ********\n");
 
-  if (MF.empty())
-    return false;
-
   STI = &MF.getSubtarget();
   TII = STI->getInstrInfo();
   TRI = STI->getRegisterInfo();
   MRI = &MF.getRegInfo();
 
   bool EverMadeChange = false;
-
-  auto RebuildFastSinkInfo = [&]() {
-    FastSinkInfo.clear();
-    if (!DT->getRootNode())
-      return;
-    FastSinkInfo.reserve(MF.size());
-    for (MachineDomTreeNode *DTN : depth_first(DT->getRootNode())) {
-      MachineBasicBlock *BB = DTN->getBlock();
-      MachineBasicBlock::const_iterator End =
-          BB->SkipPHIsAndLabels(BB->begin());
-      bool HasPrologue = false;
-      for (MachineBasicBlock::const_iterator PI = BB->getFirstNonPHI();
-           PI != End; ++PI) {
-        if (TII->isBasicBlockPrologue(*PI)) {
-          HasPrologue = true;
-          break;
-        }
-      }
-      bool CanEnter = !CI->getCycle(BB) && !BB->isEHPad() &&
-                      !BB->isInlineAsmBrIndirectTarget() && !HasPrologue;
-      BlockFastSinkInfo ParentInfo;
-      if (MachineDomTreeNode *IDom = DTN->getIDom())
-        ParentInfo = FastSinkInfo.lookup(IDom->getBlock());
-      FastSinkInfo[BB] = {
-          ParentInfo.DomDepth + 1,
-          ParentInfo.BadEnterCount + (!CanEnter ? 1 : 0),
-          ParentInfo.LiveInCount + (!BB->livein_empty() ? 1 : 0),
-          ParentInfo.SingleSuccCount + (BB->succ_size() <= 1 ? 1 : 0)};
-    }
-  };
-  RebuildFastSinkInfo();
 
   while (true) {
     bool MadeChange = false;
@@ -936,7 +848,6 @@ bool MachineSinking::run(MachineFunction &MF) {
       MadeChange |= ProcessBlock(MBB);
 
     // If we have anything we marked as toSplit, split it now.
-    bool DidSplit = false;
     MachineDomTreeUpdater MDTU(DT, PDT,
                                MachineDomTreeUpdater::UpdateStrategy::Lazy);
     for (const auto &Pair : ToSplit) {
@@ -951,15 +862,10 @@ bool MachineSinking::run(MachineFunction &MF) {
           MBFI->onEdgeSplit(*Pair.first, *NewSucc, *MBPI);
 
         MadeChange = true;
-        DidSplit = true;
         ++NumSplit;
         CI->splitCriticalEdge(Pair.first, Pair.second, NewSucc);
       } else
         LLVM_DEBUG(dbgs() << " *** Not legal to break critical edge\n");
-    }
-    if (DidSplit) {
-      MDTU.flush();
-      RebuildFastSinkInfo();
     }
     // If this iteration over the code changed anything, keep iterating.
     if (!MadeChange)
@@ -2034,61 +1940,60 @@ bool MachineSinking::SinkInstruction(MachineInstr &MI, bool &SawStore,
     return false;
   }
 
-  // When sinking a side-effect-free single-def instruction down a deep acyclic
-  // dominator chain whose intermediate blocks have multiple successors and no
-  // prologue instructions, advance directly to the deepest legal dominator
-  // instead of splicing one block at a time.
+  // For side-effect-free single-def instructions, try jumping directly to the
+  // nearest common dominator of all uses instead of splicing one block at a
+  // time down deep dominator chains.
   bool DontMoveAcrossStore = true;
   if (!MI.isCopy() && !MI.mayLoadOrStore() &&
       MI.isSafeToMove(DontMoveAcrossStore) && !TII->isBasicBlockPrologue(MI) &&
-      !CI->getCycle(ParentBlock) && !CI->getCycle(SuccToSinkTo)) {
+      !CI->getCycle(ParentBlock)) {
     Register DefReg;
-    bool CanFastSinkDefs = true;
-    bool HasPhysDeadDef = false;
     for (const MachineOperand &MO : MI.all_defs()) {
-      Register Reg = MO.getReg();
-      if (!Reg)
-        continue;
-      if (Reg.isPhysical()) {
-        if (!MO.isDead()) {
-          CanFastSinkDefs = false;
+      if (MO.getReg().isVirtual()) {
+        DefReg = (!DefReg && MO.getSubReg() == 0) ? MO.getReg() : Register();
+        if (!DefReg)
           break;
-        }
-        HasPhysDeadDef = true;
-      } else if (!DefReg && MO.getSubReg() == 0) {
-        DefReg = Reg;
-      } else {
-        CanFastSinkDefs = false;
-        break;
       }
     }
-    if (CanFastSinkDefs && DefReg && MRI->hasOneDef(DefReg) &&
-        !SeenDbgUsers.contains(DefReg)) {
-      auto [Cand, HasNonPHIUseInNCD] = findFastSinkTarget(DefReg);
+    if (DefReg && MRI->hasOneDef(DefReg) && !SeenDbgUsers.contains(DefReg)) {
+      MachineBasicBlock *Cand = nullptr;
+      bool HasNonPHIUseInCand = false;
+      for (MachineOperand &MO : MRI->use_nodbg_operands(DefReg)) {
+        MachineInstr *UseMI = MO.getParent();
+        MachineBasicBlock *UseBB =
+            UseMI->isPHI() ? UseMI->getOperand(MO.getOperandNo() + 1).getMBB()
+                           : UseMI->getParent();
+        if (!DT->isReachableFromEntry(UseBB))
+          continue;
+        if (!Cand) {
+          Cand = UseBB;
+          HasNonPHIUseInCand = !UseMI->isPHI();
+        } else {
+          MachineBasicBlock *NewCand =
+              DT->findNearestCommonDominator(Cand, UseBB);
+          HasNonPHIUseInCand = (NewCand == Cand && HasNonPHIUseInCand) ||
+                               (NewCand == UseBB && !UseMI->isPHI());
+          Cand = NewCand;
+        }
+      }
       if (Cand && Cand != SuccToSinkTo && DT->dominates(SuccToSinkTo, Cand)) {
-        if (HasNonPHIUseInNCD) {
+        if (HasNonPHIUseInCand) {
           MachineBasicBlock *CandIDom =
               DT->getNode(Cand)->getIDom()->getBlock();
           if (PDT->dominates(Cand, CandIDom))
             Cand = CandIDom;
         }
-        BlockFastSinkInfo CandInfo = FastSinkInfo.lookup(Cand);
-        BlockFastSinkInfo SuccInfo = FastSinkInfo.lookup(SuccToSinkTo);
-        if (CandInfo.DomDepth >= SuccInfo.DomDepth + 8) {
-          MachineBasicBlock *CandIDom =
-              DT->getNode(Cand)->getIDom()->getBlock();
-          MachineDomTreeNode *SuccIDom = DT->getNode(SuccToSinkTo)->getIDom();
-          uint32_t BaseSingleSucc =
-              SuccIDom
-                  ? FastSinkInfo.lookup(SuccIDom->getBlock()).SingleSuccCount
-                  : 0;
-          if (CandInfo.BadEnterCount == SuccInfo.BadEnterCount &&
-              (!HasPhysDeadDef ||
-               CandInfo.LiveInCount == SuccInfo.LiveInCount) &&
-              FastSinkInfo.lookup(CandIDom).SingleSuccCount == BaseSingleSucc &&
-              TII->isSafeToSink(MI, Cand, CI)) {
+        if (DT->getNode(Cand)->getLevel() >=
+                DT->getNode(SuccToSinkTo)->getLevel() + 8 &&
+            !CI->getCycle(Cand) && !Cand->isEHPad() &&
+            !Cand->isInlineAsmBrIndirectTarget() &&
+            TII->isSafeToSink(MI, Cand, CI) &&
+            llvm::none_of(MI.all_defs(), [&](const MachineOperand &MO) {
+              return MO.getReg().isPhysical() && Cand->isLiveIn(MO.getReg());
+            })) {
+          auto CandPos = Cand->SkipPHIsAndLabels(Cand->begin());
+          if (!blockPrologueInterferes(Cand, CandPos, MI, TRI, TII, MRI))
             SuccToSinkTo = Cand;
-          }
         }
       }
     }

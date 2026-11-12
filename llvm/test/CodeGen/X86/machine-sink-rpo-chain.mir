@@ -121,7 +121,8 @@ body:             |
   ; CHECK-NEXT: {{  $}}
   ; CHECK-NEXT: bb.5:
   ; CHECK-NEXT:   [[LEA64r:%[0-9]+]]:gr64 = LEA64r [[COPY]], 1, $noreg, 64, $noreg
-  ; CHECK-NEXT:   [[SUBREG_TO_REG:%[0-9]+]]:gr64_nosp = SUBREG_TO_REG %3, %subreg.sub_32bit
+  ; CHECK-NEXT:   [[ADD32ri:%[0-9]+]]:gr32 = ADD32ri [[COPY1]], 42, implicit-def dead $eflags
+  ; CHECK-NEXT:   [[SUBREG_TO_REG:%[0-9]+]]:gr64_nosp = SUBREG_TO_REG [[ADD32ri]], %subreg.sub_32bit
   ; CHECK-NEXT:   [[LEA64r1:%[0-9]+]]:gr64 = LEA64r [[LEA64r]], 1, [[SUBREG_TO_REG]], 0, $noreg
   ; CHECK-NEXT:   $rax = COPY [[LEA64r1]]
   ; CHECK-NEXT:   RET 0, $rax
@@ -143,7 +144,6 @@ body:             |
   ; CHECK-NEXT: bb.8:
   ; CHECK-NEXT:   successors: %bb.11(0x40000000), %bb.3(0x40000000)
   ; CHECK-NEXT: {{  $}}
-  ; CHECK-NEXT:   [[ADD32ri:%[0-9]+]]:gr32 = ADD32ri [[COPY1]], 42, implicit-def dead $eflags
   ; CHECK-NEXT:   TEST32ri [[COPY1]], 32, implicit-def $eflags
   ; CHECK-NEXT:   JCC_1 %bb.11, 5, implicit $eflags
   ; CHECK-NEXT:   JMP_1 %bb.3
