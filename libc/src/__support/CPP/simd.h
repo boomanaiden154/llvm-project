@@ -193,6 +193,12 @@ LIBC_INLINE constexpr static int find_last_set(simd<T, N> v) {
   constexpr size_t size = simd_size_v<simd<T, N>>;
   return size - 1 - __builtin_clzg(simd_cast<bool>(v));
 }
+template <typename T, size_t N, internal::enable_if_integral_t<T> = 0>
+LIBC_INLINE constexpr static internal::get_as_integer_type_t<simd<bool, N>>
+to_bitmask(simd<T, N> v) {
+  return __builtin_bit_cast(internal::get_as_integer_type_t<simd<bool, N>>,
+                            simd_cast<bool>(v));
+}
 
 // Elementwise operations.
 template <typename T, size_t N>

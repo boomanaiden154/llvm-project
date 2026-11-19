@@ -148,3 +148,12 @@ TEST(LlvmLibcSIMDTest, MaskedCompressExpand) {
 
   EXPECT_TRUE(cpp::all_of(!mask_expand || v2 <= SIZE / 2));
 }
+
+TEST(LlvmLibcSIMDTest, ToBitmask) {
+  cpp::simd<char, 8> v = cpp::iota<char, 8>(0);
+  cpp::simd<bool, 8> m = (v == 1) | (v == 4) | (v == 7);
+  EXPECT_EQ(static_cast<uint8_t>(cpp::to_bitmask(m)),
+            static_cast<uint8_t>((1u << 1) | (1u << 4) | (1u << 7)));
+  EXPECT_EQ(static_cast<uint8_t>(cpp::to_bitmask(v == 99)),
+            static_cast<uint8_t>(0));
+}

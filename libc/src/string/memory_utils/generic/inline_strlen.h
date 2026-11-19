@@ -22,8 +22,7 @@ namespace clang_vector {
 template <typename byte_ty>
 LIBC_INLINE constexpr cpp::simd_mask<byte_ty> shift_mask(cpp::simd_mask<char> m,
                                                          size_t shift) {
-  using bitmask_ty = cpp::internal::get_as_integer_type_t<cpp::simd_mask<char>>;
-  bitmask_ty r = cpp::bit_cast<bitmask_ty>(m) >> shift;
+  auto r = cpp::to_bitmask(m) >> shift;
   return cpp::bit_cast<cpp::simd_mask<byte_ty>>(r);
 }
 
@@ -96,7 +95,9 @@ find_first_character_small(const unsigned char *s, cpp::simd<char> c,
   return nullptr;
 }
 
-// A find_first_character implementation for large inputs.
+// A find_first_character implementation for large inputs. The input is
+// expected to be aligned to LOOP_BLOCK_SIZE. There is then a loop that
+// does four VEC_SIZE loads per iteration.
 LIBC_NO_SANITIZE_OOB_ACCESS LIBC_ALWAYS_INLINE static void *
 find_first_aligned_loop(const cpp::simd<char> *s,
                         cpp::simd<char> c, size_t n) {
@@ -175,13 +176,11 @@ find_first_character(const unsigned char *s, unsigned char c, size_t n) {
           __builtin_align_down(s, LOOP_BLOCK_SIZE));
       size_t offset = static_cast<size_t>(
           s - reinterpret_cast<const unsigned char *>(block));
-      using BitMask = cpp::internal::get_as_integer_type_t<cpp::simd_mask<char>>;
       uint64_t combined = 0;
       for (size_t i = 0; i < 4; ++i) {
         cpp::simd_mask<char> m =
             cpp::load<cpp::simd<char>>(block + i, /*aligned=*/true) == c_byte;
-        combined |= static_cast<uint64_t>(cpp::bit_cast<BitMask>(m))
-                    << (i * VEC_SIZE);
+        combined |= static_cast<uint64_t>(cpp::to_bitmask(m)) << (i * VEC_SIZE);
       }
       combined >>= offset;
       if (LIBC_UNLIKELY(combined != 0))
