@@ -70,7 +70,8 @@ def displaySweepData(id, studies, mode):
     graph.xaxis.set_major_formatter(EngFormatter(unit="B"))
     graph.xaxis.set_label_text("Copy Size")
     _ = plt.xticks(rotation=90)
-    plt.show()
+    plt.savefig("/tmp/out.png", bbox_inches="tight")
+    plt.close()
 
 def displayDistributionData(id, studies, mode):
     distributions = set()
@@ -96,7 +97,8 @@ def displayDistributionData(id, studies, mode):
     graph.yaxis.set_major_formatter(EngFormatter(unit=FormatterUnit))
     graph.yaxis.set_label_text(Label)
     _ = plt.xticks(rotation=90)
-    plt.show()
+    plt.savefig("/tmp/out.png", bbox_inches="tight")
+    plt.close()
 
 
 def main():

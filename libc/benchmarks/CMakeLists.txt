@@ -239,6 +239,17 @@ if(LIBC_BENCHMARKS_HAS_LLVM_SUPPORT)
   add_libc_multi_impl_benchmark(memset)
   if(TARGET libc.src.string.memchr)
     add_libc_benchmark(memchr libc.src.string.memchr)
+
+    add_executable(libc.src.string.memchr_glibc_benchmark
+      EXCLUDE_FROM_ALL
+      LibcMemoryBenchmarkMain.cpp
+    )
+    target_link_libraries(libc.src.string.memchr_glibc_benchmark PUBLIC json)
+    target_compile_definitions(libc.src.string.memchr_glibc_benchmark PRIVATE
+      "-DLIBC_BENCHMARK_FUNCTION_MEMCHR=glibc_memchr"
+      "-DLIBC_BENCHMARK_FUNCTION_NAME=\"glibc::memchr\""
+    )
+    llvm_update_compile_flags(libc.src.string.memchr_glibc_benchmark)
   endif()
 endif()
 

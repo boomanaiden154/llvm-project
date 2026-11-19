@@ -34,6 +34,12 @@ extern void *memchr(const void *, int, size_t);
 
 } // namespace LIBC_NAMESPACE_DECL
 
+namespace {
+[[maybe_unused]] void *glibc_memchr(const void *s, int c, size_t n) {
+  return const_cast<void *>(::memchr(s, c, n));
+}
+} // namespace
+
 namespace llvm {
 namespace libc_benchmarks {
 

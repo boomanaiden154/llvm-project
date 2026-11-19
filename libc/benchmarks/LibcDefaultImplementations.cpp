@@ -2,6 +2,7 @@
 #include "src/__support/macros/config.h"
 #include "llvm/ADT/ArrayRef.h"
 #include <cstddef>
+#include <cstring>
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -54,8 +55,13 @@ llvm::ArrayRef<BzeroConfiguration> getBzeroConfigurations() {
       {LIBC_NAMESPACE::bzero, "LIBC_NAMESPACE::bzero"}};
   return llvm::ArrayRef(kBzeroConfigurations);
 }
+static void *glibc_memchr(const void *s, int c, size_t n) {
+  return const_cast<void *>(::memchr(s, c, n));
+}
+
 llvm::ArrayRef<MemchrConfiguration> getMemchrConfigurations() {
   static constexpr MemchrConfiguration kMemchrConfigurations[] = {
-      {LIBC_NAMESPACE::memchr, "LIBC_NAMESPACE::memchr"}};
+      {LIBC_NAMESPACE::memchr, "LIBC_NAMESPACE::memchr"},
+      {glibc_memchr, "glibc::memchr"}};
   return llvm::ArrayRef(kMemchrConfigurations);
 }
