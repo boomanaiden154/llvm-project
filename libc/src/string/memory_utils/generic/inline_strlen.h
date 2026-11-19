@@ -140,9 +140,10 @@ find_first_character(const unsigned char *s, unsigned char c, size_t n) {
     return nullptr;
 
   constexpr size_t min_page_size = 4096;
-  static_assert((min_page_size & (min_page_size - 1)) == 0 &&
-                    min_page_size >= LOOP_BLOCK_SIZE,
-                "4x vector block must not cross a page boundary.");
+  static_assert(cpp::has_single_bit(min_page_size) &&
+                    cpp::has_single_bit(LOOP_BLOCK_SIZE) &&
+                    min_page_size % LOOP_BLOCK_SIZE == 0,
+                "4x vector block must cleanly divide a page.");
 
   cpp::simd<char> c_byte = c;
 
