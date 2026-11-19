@@ -48,12 +48,12 @@ LIBC_NO_SANITIZE_OOB_ACCESS LIBC_INLINE size_t string_length(const char *src) {
   }
 }
 
-LIBC_INLINE static void *calculate_find_first_character_return(
+LIBC_INLINE static const void *calculate_find_first_character_return(
     const char *src, cpp::simd_mask<char> c_mask, size_t n_left) {
   size_t c_offset = cpp::find_first_set(c_mask);
   if (n_left <= c_offset)
     return nullptr;
-  return const_cast<char *>(src) + c_offset;
+  return src + c_offset;
 }
 
 LIBC_INLINE_VAR constexpr size_t VEC_SIZE = sizeof(cpp::simd<char>);
@@ -63,7 +63,7 @@ LIBC_INLINE_VAR constexpr size_t LOOP_BLOCK_SIZE = 4 * VEC_SIZE;
 // size. It loads N vectors with the last end of the last vector alinging
 // with the end of the buffer passed in.
 template <size_t N>
-LIBC_NO_SANITIZE_OOB_ACCESS LIBC_ALWAYS_INLINE static void *
+LIBC_NO_SANITIZE_OOB_ACCESS LIBC_ALWAYS_INLINE static const void *
 find_first_character_small(const unsigned char *s, cpp::simd<char> c,
                            size_t n) {
   static_assert(N >= 2 && N <= 4);
@@ -87,10 +87,8 @@ find_first_character_small(const unsigned char *s, cpp::simd<char> c,
   if (cpp::any_of(combined)) {
     for (size_t i = 0; i < N - 1; ++i)
       if (cpp::any_of(masks[i]))
-        return const_cast<unsigned char *>(ptrs[i]) +
-               cpp::find_first_set(masks[i]);
-    return const_cast<unsigned char *>(ptrs[N - 1]) +
-           cpp::find_first_set(masks[N - 1]);
+        return ptrs[i] + cpp::find_first_set(masks[i]);
+    return ptrs[N - 1] + cpp::find_first_set(masks[N - 1]);
   }
   return nullptr;
 }
@@ -98,7 +96,7 @@ find_first_character_small(const unsigned char *s, cpp::simd<char> c,
 // A find_first_character implementation for large inputs. The input is
 // expected to be aligned to LOOP_BLOCK_SIZE. There is then a loop that
 // does four VEC_SIZE loads per iteration.
-LIBC_NO_SANITIZE_OOB_ACCESS LIBC_ALWAYS_INLINE static void *
+LIBC_NO_SANITIZE_OOB_ACCESS LIBC_ALWAYS_INLINE static const void *
 find_first_aligned_loop(const cpp::simd<char> *s,
                         cpp::simd<char> c, size_t n) {
   LIBC_LOOP_NOUNROLL
@@ -126,8 +124,7 @@ find_first_aligned_loop(const cpp::simd<char> *s,
         found_offset = 3 * VEC_SIZE + cpp::find_first_set(m3);
       if (found_offset >= n)
         return nullptr;
-      return const_cast<char *>(reinterpret_cast<const char *>(s)) +
-             found_offset;
+      return reinterpret_cast<const char *>(s) + found_offset;
     }
     if (n <= LOOP_BLOCK_SIZE)
       return nullptr;
@@ -136,7 +133,7 @@ find_first_aligned_loop(const cpp::simd<char> *s,
   }
 }
 
-LIBC_NO_SANITIZE_OOB_ACCESS LIBC_ALWAYS_INLINE static void *
+LIBC_NO_SANITIZE_OOB_ACCESS LIBC_ALWAYS_INLINE static const void *
 find_first_character(const unsigned char *s, unsigned char c, size_t n) {
   // s doesn't have to be dereferenceable if there is nothing to search.
   if (n == 0)
@@ -184,7 +181,7 @@ find_first_character(const unsigned char *s, unsigned char c, size_t n) {
       }
       combined >>= offset;
       if (LIBC_UNLIKELY(combined != 0))
-        return const_cast<unsigned char *>(s) + cpp::countr_zero(combined);
+        return s + cpp::countr_zero(combined);
       n -= LOOP_BLOCK_SIZE - offset;
       loop_aligned = block + 4;
     }

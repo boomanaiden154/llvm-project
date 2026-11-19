@@ -128,7 +128,7 @@ LIBC_INLINE constexpr static char *strrchr_implementation(const char *src,
 LIBC_ALWAYS_INLINE void *find_first_character(const unsigned char *src,
                                               unsigned char ch,
                                               size_t max_strlen) {
-  return find_first_character_impl(src, ch, max_strlen);
+  return const_cast<void *>(find_first_character_impl(src, ch, max_strlen));
 }
 
 LIBC_INLINE size_t strnlen(const char *s, size_t max_len) {
