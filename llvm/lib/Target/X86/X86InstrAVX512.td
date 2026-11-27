@@ -13963,20 +13963,46 @@ defm VPBITREVB : avx512_unary_rm_vl<0x81, "vbitrevb", bitreverse, SchedWriteVecA
 defm : avx512_unary_lowering<"VPBITREVB", bitreverse, avx512vl_i8_info, HasBMM>;
 
 // VBMACOR, VBMACXOR - BMM matrix multiplication instructions
+let Constraints = "$src1 = $dst" in
+multiclass avx512_bmm_rm<bits<8> Op, string OpStr, SDNode OpNode,
+                         X86FoldableSchedWrite sched, X86VectorVTInfo VTI> {
+  let ExeDomain = VTI.ExeDomain in {
+    def rr : AVX512<Op, MRMSrcReg, (outs VTI.RC:$dst),
+                    (ins VTI.RC:$src1, VTI.RC:$src2, VTI.RC:$src3),
+                    OpStr#"\t{$src3, $src2, $dst|$dst, $src2, $src3}",
+                    [(set VTI.RC:$dst,
+                      (VTI.VT (OpNode VTI.RC:$src1, VTI.RC:$src2, VTI.RC:$src3)))]>,
+             EVEX, VVVV, T_MAP6, Sched<[sched]>;
+    let mayLoad = 1 in
+    def rm : AVX512<Op, MRMSrcMem, (outs VTI.RC:$dst),
+                    (ins VTI.RC:$src1, VTI.RC:$src2, VTI.MemOp:$src3),
+                    OpStr#"\t{$src3, $src2, $dst|$dst, $src2, $src3}",
+                    [(set VTI.RC:$dst,
+                      (VTI.VT (OpNode VTI.RC:$src1, VTI.RC:$src2,
+                               (load addr:$src3))))]>,
+             EVEX, VVVV, EVEX_CD8<VTI.EltSize, CD8VF>, T_MAP6,
+             Sched<[sched.Folded, sched.ReadAfterFold, sched.ReadAfterFold]>;
+  }
+}
+
 // VBMACOR: EVEX.256.NP.MAP6.W0 80 /r, EVEX.512.NP.MAP6.W0 80 /r
 let Predicates = [HasBMM, HasVLX] in
-defm VBMACORZ256 : VNNI_rmb<0x80, "vbmacor16x16x16", x86vbmacor, SchedWriteVecIMul.YMM, v16i16x_info, 0>,
-                   EVEX_V256, T_MAP6;
+defm VBMACORZ256 : avx512_bmm_rm<0x80, "vbmacor16x16x16", x86vbmacor,
+                                 SchedWriteVecIMul.YMM, v16i16x_info>,
+                   EVEX_V256;
 
 let Predicates = [HasBMM] in
-defm VBMACORZ : VNNI_rmb<0x80, "vbmacor16x16x16", x86vbmacor, SchedWriteVecIMul.ZMM, v32i16_info, 0>,
-                EVEX_V512, T_MAP6;
+defm VBMACORZ : avx512_bmm_rm<0x80, "vbmacor16x16x16", x86vbmacor,
+                              SchedWriteVecIMul.ZMM, v32i16_info>,
+                EVEX_V512;
 
 // VBMACXOR: EVEX.256.NP.MAP6.W1 80 /r, EVEX.512.NP.MAP6.W1 80 /r
 let Predicates = [HasBMM, HasVLX] in
-defm VBMACXORZ256 : VNNI_rmb<0x80, "vbmacxor16x16x16", x86vbmacxor, SchedWriteVecIMul.YMM, v16i16x_info, 0>,
-                    EVEX_V256, T_MAP6, REX_W;
+defm VBMACXORZ256 : avx512_bmm_rm<0x80, "vbmacxor16x16x16", x86vbmacxor,
+                                  SchedWriteVecIMul.YMM, v16i16x_info>,
+                    EVEX_V256, REX_W;
 
 let Predicates = [HasBMM] in
-defm VBMACXORZ : VNNI_rmb<0x80, "vbmacxor16x16x16", x86vbmacxor, SchedWriteVecIMul.ZMM, v32i16_info, 0>,
-                 EVEX_V512, T_MAP6, REX_W;
+defm VBMACXORZ : avx512_bmm_rm<0x80, "vbmacxor16x16x16", x86vbmacxor,
+                               SchedWriteVecIMul.ZMM, v32i16_info>,
+                 EVEX_V512, REX_W;
